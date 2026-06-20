@@ -1,0 +1,42 @@
+{
+  "name": "tesis-catania-test",
+  "version": "1.0.0",
+  "description": "testing whatsapp business api",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "tsx watch app.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "facebook-nodejs-business-sdk": "^23.0.1",
+    "redis": "^5.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@google/genai": "^2.8.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/body-parser": "^1.19.6",
+    "@types/express": "^5.0.6",
+    "@types/facebook-nodejs-business-sdk": "^24.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.19.42",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
+    "install": "^0.13.0",
+    "jest": "^30.4.2",
+    "npm": "^11.17.0",
+    "openai": "^6.42.0",
+    "prisma": "^7.8.0",
+    "ts-jest": "^29.4.11",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
