@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import bodyParser from 'body-parser';
 import express, { Request, Response } from 'express';
 
-import { config } from './src/shared';
+import { config } from './src/shared/utils';
 import { Conversation } from './src/modules/whatsapp';
 
 const { urlencoded, json } = bodyParser;

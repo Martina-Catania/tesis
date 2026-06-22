@@ -1,7 +1,7 @@
 import { GraphApi } from './graph-api';
 import { Message, RawMessage } from './message';
 import { Status, RawStatus } from './status';
-import { Cache } from '../../shared';
+import { Cache } from '../../shared/utils';
 
 export class Conversation {
 	static async handleMessage(

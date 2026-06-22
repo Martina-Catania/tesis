@@ -1,5 +1,5 @@
 import * as facebookNodejsBusinessSdk from 'facebook-nodejs-business-sdk';
-import { config } from '../../shared';
+import { config } from '../../shared/utils';
 
 const { FacebookAdsApi } = facebookNodejsBusinessSdk;
 const token = config.accessToken as string;
