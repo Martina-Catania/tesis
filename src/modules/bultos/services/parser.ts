@@ -11,7 +11,7 @@ interface Package {
 interface Delivery {
     client: string;
     packages: Package[];
-    error?: string;
+    errors: string[];
 }
 
 /**
@@ -63,13 +63,23 @@ function parseMeasurementLine(line: string): Package | null {
     return null;
 }
 
+// Returns true if a line looks like a measurement (contains only digits, x's, and whitespace).
+function looksLikeMeasurement(line: string): boolean {
+    return /^[\dx\s]+$/i.test(line);
+}
+
+// Returns true if a delivery has any errors.
+export function hasErrors(delivery: Delivery): boolean {
+    return delivery.errors.length > 0;
+}
+
 /**
  * Parses a delivery message sent by a driver.
  *
  * The driver optionally includes a client name on its own line before the
  * package measurements. The parser groups measurements under the most
  * recently seen client name, validates it against the database, and
- * attaches an error when validation fails.
+ * accumulates errors for invalid clients or malformed measurements.
  */
 export function parseDeliveryMessage(message: string): Delivery[] {
     const lines = message.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
@@ -81,16 +91,27 @@ export function parseDeliveryMessage(message: string): Delivery[] {
         const pkg = parseMeasurementLine(line);
 
         if (pkg) {
-            // Measurement line — attach to current delivery (or create anonymous one)
+            // Valid measurement — attach to current delivery (or create anonymous one)
             if (!currentDelivery) {
                 currentDelivery = {
                     client: "Desconocido",
                     packages: [],
-                    error: "No se encontró un cliente válido en el mensaje",
+                    errors: ["No se encontró un cliente válido en el mensaje"],
                 };
                 deliveries.push(currentDelivery);
             }
             currentDelivery.packages.push(pkg);
+        } else if (looksLikeMeasurement(line)) {
+            // Malformed measurement — accumulate error on current delivery (or create anonymous one)
+            if (!currentDelivery) {
+                currentDelivery = {
+                    client: "Desconocido",
+                    packages: [],
+                    errors: [],
+                };
+                deliveries.push(currentDelivery);
+            }
+            currentDelivery.errors.push(`Medición inválida: "${line}"`);
         } else {
             // Non-measurement line → treat as a client name
             const clientName = line;
@@ -99,7 +120,7 @@ export function parseDeliveryMessage(message: string): Delivery[] {
             currentDelivery = {
                 client: clientName,
                 packages: [],
-                ...(isValid ? {} : { error: "Cliente no encontrado en la base de datos" }),
+                errors: isValid ? [] : ["Cliente no encontrado en la base de datos"],
             };
             deliveries.push(currentDelivery);
         }

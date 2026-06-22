@@ -14,7 +14,7 @@ describe('Client parsing', () => {
             [{
                 client: "Cliente Valido", packages: [
                     { length: 10, width: 20, height: 30, quantity: 10 },
-                ]
+                ], errors: []
             }]
         );
     });
@@ -26,12 +26,12 @@ describe('Client parsing', () => {
             {
                 client: "Cliente Valido", packages: [
                     { length: 10, width: 20, height: 30, quantity: 10 },
-                ]
+                ], errors: []
             },
             {
                 client: "Cliente Valido 2", packages: [
                     { length: 5, width: 5, height: 5, quantity: 2 }
-                ]
+                ], errors: []
             }
         ]);
     });
@@ -43,12 +43,12 @@ describe('Client parsing', () => {
             {
                 client: "Cliente Valido", packages: [
                     { length: 10, width: 20, height: 30, quantity: 10 },
-                ]
+                ], errors: []
             },
             {
                 client: "Cliente Invalido", packages: [
                     { length: 5, width: 5, height: 5, quantity: 2 }
-                ], error: "Cliente no encontrado en la base de datos"
+                ], errors: ["Cliente no encontrado en la base de datos"]
             }
         ]);
     });
@@ -61,7 +61,7 @@ describe('Client parsing', () => {
                 client: "Desconocido", packages: [
                     { length: 10, width: 20, height: 30, quantity: 10 },
                     { length: 5, width: 5, height: 5, quantity: 2 }
-                ], error: "No se encontró un cliente válido en el mensaje"
+                ], errors: ["No se encontró un cliente válido en el mensaje"]
             }
         ]);
     });
@@ -80,9 +80,9 @@ describe('Format parsing', () => {
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
-                    { length: 10, width: 20, height: 30, quantity: 1 }]
-            },
-            ]
+                    { length: 10, width: 20, height: 30, quantity: 1 }],
+                errors: []
+            }]
         );
     });
 
@@ -92,8 +92,9 @@ describe('Format parsing', () => {
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
-                    { length: 10, width: 20, height: 30, quantity: 10 }]
-            }],
+                    { length: 10, width: 20, height: 30, quantity: 10 }],
+                errors: []
+            }]
         );
     });
 
@@ -103,8 +104,9 @@ describe('Format parsing', () => {
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
-                    { length: 10, width: 20, height: 30, quantity: 10 }]
-            }],
+                    { length: 10, width: 20, height: 30, quantity: 10 }],
+                errors: []
+            }]
         );
     });
 
@@ -116,15 +118,18 @@ describe('Format parsing', () => {
                 client: "Cliente Valido", packages: [
                     { length: 10, width: 20, height: 30, quantity: 10 },
                     { length: 5, width: 5, height: 5, quantity: 2 },
-                ]
+                ], errors: []
             }
         ]);
     });
-});
 
-describe('Date parsing', () => {
-    // Sometimes drivers send the day of the week alongside the clients and measurements
-    // If present the parser should add the date to the delivery object, if not it should add the current date
-    // E.g. "Lunes\nCliente Valido\n10x20x30 10" means the whole message should be associated with the date of the last Monday/current date if today is Monday
-
+    it('should add an error message for invalid measurements', () => {
+        const message = "Cliente Valido\n10x20x30x10x10";
+        const deliveries = parseDeliveryMessage(message);
+        expect(deliveries).toEqual([
+            {
+                client: "Cliente Valido", packages: [], errors: ["Medición inválida: \"10x20x30x10x10\""]
+            }
+        ]);
+    });
 });
