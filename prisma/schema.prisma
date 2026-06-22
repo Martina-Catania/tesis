@@ -1,0 +1,163 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Zone {
+  CABA
+  AMBA_1
+  AMBA_2
+  AMBA_3
+}
+
+// ─── Clients ────────────────────────────────────────────────────────────────
+
+model Client {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  aliases    Alias[]
+  addresses  Address[]
+  deliveries Delivery[]
+}
+
+model Alias {
+  id    Int    @id @default(autoincrement())
+  alias String @unique
+
+  clientId Int    @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
+}
+
+model Address {
+  id      Int     @id @default(autoincrement())
+  address String
+  zone    Zone
+  active  Boolean @default(true)
+
+  clientId Int    @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId])
+}
+
+// ─── Tariffs ─────────────────────────────────────────────────────────────────
+
+// One row per tariff period (e.g. "Mayo 2026 (desde el 12/05)")
+model TariffPeriod {
+  id        Int      @id @default(autoincrement())
+  label     String   @unique            // e.g. "Mayo 2026"
+  validFrom DateTime @map("valid_from") // e.g. 2026-05-12
+
+  rates        TariffRate[] // volume-bracket rates per zone
+  hourlyRates  TariffHourlyRate[] // only for CABA
+  deliveries   Delivery[]
+}
+
+/**
+Volume-bracket rates per zone.
+Each row = one bracket + zone combination within a period.
+  Hasta 0.05 m3
+  > 0.05 < 0.10 m3
+  > 0.10 < 0.30 m3
+  > 0.30 < 0.50 m3
+  > 0.50 < 0.75 m3
+  > 0.75 < 1.00 m3
+  > 1.00 m3 (por m3)
+ */
+model TariffRate {
+  id              Int    @id @default(autoincrement())
+  volumeMinM3     Float  @map("volume_min_m3") // inclusive lower bound (0 for first bracket)
+  volumeMaxM3     Float? @map("volume_max_m3") // null means "no upper bound" (per-m3 rate)
+  perM3           Boolean @default(false) @map("per_m3") // true for the "Más de 1m3, por m3" row
+  zone            Zone
+  price           Float
+
+  periodId Int          @map("period_id")
+  period   TariffPeriod @relation(fields: [periodId], references: [id])
+
+  @@unique([periodId, volumeMinM3, volumeMaxM3, zone])
+  @@index([periodId])
+}
+
+// Hourly rate — only exists for CABA in the Excel sheet
+model TariffHourlyRate {
+  id    Int   @id @default(autoincrement())
+  zone  Zone  @default(CABA)
+  price Float
+
+  periodId Int          @map("period_id")
+  period   TariffPeriod @relation(fields: [periodId], references: [id])
+
+  @@unique([periodId, zone])
+  @@index([periodId])
+}
+
+// ─── Deliveries ──────────────────────────────────────────────────────────────
+
+model Delivery {
+  id   Int      @id @default(autoincrement())
+  date DateTime @default(now())
+
+  clientId Int    @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // Which tariff period was active when this delivery was priced
+  periodId Int?          @map("period_id")
+  period   TariffPeriod? @relation(fields: [periodId], references: [id])
+
+  packages Package[]
+
+  @@index([clientId])
+  @@index([periodId])
+  @@index([date])
+}
+
+model Package {
+  id       Int   @id @default(autoincrement())
+  length   Float
+  width    Float
+  height   Float
+  quantity Int
+  volume   Float
+
+  deliveryId Int      @map("delivery_id")
+  delivery   Delivery @relation(fields: [deliveryId], references: [id])
+
+  @@index([deliveryId])
+}
+
+// ─── Delivery Errors ─────────────────────────────────────────────────────────
+
+// Stores raw delivery messages that failed to parse cleanly.
+// Any subset of fields may be present depending on how far parsing got.
+model DeliveryError {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rawMessage String?  @map("raw_message") // the original unparsed message
+
+  // Client info extracted from the message, if any
+  clientName String?  @map("client_name") // raw name from message, if found
+  clientId   Int?     @map("client_id")   // resolved FK if client was found in DB (no relation constraint intentionally)
+
+  // Packages parsed before or around the error — stored as JSON since they are probably incomplete/unvalidated
+  packages Json?
+
+  // All error messages accumulated during parsing
+  errors Json?
+
+  @@index([clientId])
+  @@index([createdAt])
+}
