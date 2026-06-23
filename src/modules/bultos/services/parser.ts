@@ -14,6 +14,68 @@ interface Delivery {
     errors: string[];
 }
 
+interface DeliveryMessage {
+    date: Date;
+    deliveries: Delivery[];
+}
+
+const DAY_NAMES: Record<string, number> = {
+    "lunes": 1,
+    "martes": 2,
+    "miércoles": 3,
+    "miercoles": 3,
+    "jueves": 4,
+    "viernes": 5,
+    "sábado": 6,
+    "sabado": 6,
+    "domingo": 0,
+};
+
+// Returns the most recent occurrence of the given day of the week (0 = Sunday, 1 = Monday, ..., 6 = Saturday).
+// If today is the target day, returns today.
+function lastOccurrenceOfDay(targetDay: number): Date {
+    const today = new Date();
+    const currentDay = today.getDay();
+    const daysAgo = (currentDay - targetDay + 7) % 7; // Calculate how many days ago the target day was
+    const result = new Date(today);
+    result.setDate(today.getDate() - daysAgo);
+    return result;
+}
+
+/**
+ * Tries to parse a line as a date.
+ *
+ * Supported formats:
+ *   1. "Viernes", "lunes", etc.
+ *   2. "DD/MM" or "DD/MM/YYYY"
+ *
+ * Returns a Date if matched, null otherwise.
+ */
+function parseDateLine(line: string): Date | null {
+    // Day name
+    const dayName = line.trim().toLowerCase();
+    if (dayName in DAY_NAMES) {
+        return lastOccurrenceOfDay(DAY_NAMES[dayName]);
+    }
+
+    // Numeric date: DD/MM or DD/MM/YYYY
+    const match = line.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+    if (match) {
+        const day = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1; // months are 0-indexed in JS
+        const year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
+
+        const date = new Date(year, month, day);
+
+        // Sanity check — invalid dates like 31/02 would shift
+        if (date.getDate() !== day || date.getMonth() !== month) return null;
+
+        return date;
+    }
+
+    return null;
+}
+
 /**
  * Tries to parse a line as a package measurement.
  *
@@ -76,22 +138,33 @@ export function hasErrors(delivery: Delivery): boolean {
 /**
  * Parses a delivery message sent by a driver.
  *
+ * The driver optionally includes a date on its own line, either as:
+ *   - A Spanish day name (e.g. "Viernes") → resolves to the most recent occurrence of that day
+ *   - A numeric date (e.g. "05/06" or "05/06/2025")
+ * If no date is found, the current date is used.
+ *
  * The driver optionally includes a client name on its own line before the
  * package measurements. The parser groups measurements under the most
  * recently seen client name, validates it against the database, and
  * accumulates errors for invalid clients or malformed measurements.
  */
-export function parseDeliveryMessage(message: string): Delivery[] {
+export function parseDeliveryMessage(message: string): DeliveryMessage {
     const lines = message.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
 
+    let date: Date | null = null;
     const deliveries: Delivery[] = [];
     let currentDelivery: Delivery | null = null;
 
     for (const line of lines) {
+        const parsedDate = parseDateLine(line);
+        if (parsedDate) {
+            date = parsedDate;
+            continue;
+        }
+
         const pkg = parseMeasurementLine(line);
 
         if (pkg) {
-            // Valid measurement — attach to current delivery (or create anonymous one)
             if (!currentDelivery) {
                 currentDelivery = {
                     client: "Desconocido",
@@ -102,7 +175,6 @@ export function parseDeliveryMessage(message: string): Delivery[] {
             }
             currentDelivery.packages.push(pkg);
         } else if (looksLikeMeasurement(line)) {
-            // Malformed measurement — accumulate error on current delivery (or create anonymous one)
             if (!currentDelivery) {
                 currentDelivery = {
                     client: "Desconocido",
@@ -113,7 +185,6 @@ export function parseDeliveryMessage(message: string): Delivery[] {
             }
             currentDelivery.errors.push(`Medición inválida: "${line}"`);
         } else {
-            // Non-measurement line → treat as a client name
             const clientName = line;
             const isValid = VALID_CLIENTS.has(clientName);
 
@@ -126,5 +197,8 @@ export function parseDeliveryMessage(message: string): Delivery[] {
         }
     }
 
-    return deliveries;
+    return {
+        date: date ?? new Date(),
+        deliveries,
+    };
 }
