@@ -1,3 +1,5 @@
+import { mockDeep, mockReset } from 'jest-mock-extended';
+import { PrismaClient } from '@prisma/client';
 import { parseDeliveryMessage } from './parser';
 
 /**
@@ -5,10 +7,30 @@ import { parseDeliveryMessage } from './parser';
  * package measurements, and any errors encountered during parsing.
  */
 
+// ─── Setup ───────────────────────────────────────────────────────────────────
+
+const prismaMock = mockDeep<PrismaClient>();
+
+beforeEach(() => {
+    mockReset(prismaMock);
+});
+
+// Makes prismaMock behave as if the given names are valid clients in the DB.
+function mockValidClients(...names: string[]) {
+    prismaMock.client.findUnique.mockImplementation((args: any) => {
+        const name = args?.where?.name;
+        return Promise.resolve(names.includes(name) ? { id: 1, name } : null);
+    });
+    prismaMock.alias.findUnique.mockResolvedValue(null);
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
 describe('Client parsing', () => {
-    it('should append measurements for valid client names', () => {
+    it('should append measurements for valid client names', async () => {
+        mockValidClients('Cliente Valido');
         const message = "Cliente Valido\n10x20x30 10";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
@@ -18,9 +40,10 @@ describe('Client parsing', () => {
         );
     });
 
-    it('should append measurements to the last valid client name', () => {
+    it('should append measurements to the last valid client name', async () => {
+        mockValidClients('Cliente Valido', 'Cliente Valido 2');
         const message = "Cliente Valido\n10x20x30 10\nCliente Valido 2\n5x5x5 2";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([
             {
                 client: "Cliente Valido", packages: [
@@ -35,9 +58,10 @@ describe('Client parsing', () => {
         ]);
     });
 
-    it('should add an error message for invalid client names', () => {
+    it('should add an error message for invalid client names', async () => {
+        mockValidClients('Cliente Valido'); // 'Cliente Invalido' not in DB
         const message = "Cliente Valido\n10x20x30 10\nCliente Invalido\n5x5x5 2";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([
             {
                 client: "Cliente Valido", packages: [
@@ -52,9 +76,9 @@ describe('Client parsing', () => {
         ]);
     });
 
-    it('should add an error message for messages without client names', () => {
+    it('should add an error message for messages without client names', async () => {
         const message = "10x20x30 10\n5x5x5 2";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([
             {
                 client: "Desconocido", packages: [
@@ -67,9 +91,11 @@ describe('Client parsing', () => {
 });
 
 describe('Format parsing', () => {
-    it('should parse measurements in "LxWxH" format', () => {
+    beforeEach(() => mockValidClients('Cliente Valido'));
+
+    it('should parse measurements in "LxWxH" format', async () => {
         const message = "Cliente Valido\n10x20x30";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
@@ -79,9 +105,9 @@ describe('Format parsing', () => {
         );
     });
 
-    it('should parse measurements in "QtyxLxWxH" format', () => {
+    it('should parse measurements in "QtyxLxWxH" format', async () => {
         const message = "Cliente Valido\n10 10x20x30";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
@@ -91,9 +117,9 @@ describe('Format parsing', () => {
         );
     });
 
-    it('should parse measurements in "LxWxH Qty" format', () => {
+    it('should parse measurements in "LxWxH Qty" format', async () => {
         const message = "Cliente Valido\n10x20x30 10";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual(
             [{
                 client: "Cliente Valido", packages: [
@@ -103,9 +129,9 @@ describe('Format parsing', () => {
         );
     });
 
-    it('should parse multiple measurements in a single message', () => {
+    it('should parse multiple measurements in a single message', async () => {
         const message = "Cliente Valido\n10x20x30 10\n5x5x5 2";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([
             {
                 client: "Cliente Valido", packages: [
@@ -116,9 +142,9 @@ describe('Format parsing', () => {
         ]);
     });
 
-    it('should add an error message for invalid measurements', () => {
+    it('should add an error message for invalid measurements', async () => {
         const message = "Cliente Valido\n10x20x30x10x10";
-        const { deliveries } = parseDeliveryMessage(message);
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([
             {
                 client: "Cliente Valido", packages: [], errors: ["Medición inválida: \"10x20x30x10x10\""]
@@ -128,35 +154,37 @@ describe('Format parsing', () => {
 });
 
 describe('Date parsing', () => {
-    it('should attach the current date if none is provided', () => {
+    beforeEach(() => mockValidClients('Cliente Valido'));
+
+    it('should attach the current date if none is provided', async () => {
         const before = new Date();
         const message = "Cliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const after = new Date();
         expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime());
         expect(date.getTime()).toBeLessThanOrEqual(after.getTime());
     });
 
-    it('should parse a date in "DD/MM" format', () => {
+    it('should parse a date in "DD/MM" format', async () => {
         const message = "05/06\nCliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         expect(date.getDate()).toBe(5);
         expect(date.getMonth()).toBe(5); // 0-indexed
         expect(date.getFullYear()).toBe(new Date().getFullYear());
     });
 
-    it('should parse a date in "DD/MM/YYYY" format', () => {
+    it('should parse a date in "DD/MM/YYYY" format', async () => {
         const message = "05/06/2025\nCliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         expect(date.getDate()).toBe(5);
         expect(date.getMonth()).toBe(5); // 0-indexed
         expect(date.getFullYear()).toBe(2025);
     });
 
-    it('should ignore an invalid date and fall back to current date', () => {
+    it('should ignore an invalid date and fall back to current date', async () => {
         const before = new Date();
         const message = "31/02/2025\nCliente Valido\n10x10x10"; // Feb 31 doesn't exist
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const after = new Date();
         expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime());
         expect(date.getTime()).toBeLessThanOrEqual(after.getTime());
@@ -164,6 +192,8 @@ describe('Date parsing', () => {
 });
 
 describe('Day name parsing', () => {
+    beforeEach(() => mockValidClients('Cliente Valido'));
+
     // Helper: returns the date of the last occurrence of a given day (0=Sun … 6=Sat),
     // including today if it matches.
     function lastOccurrenceOfDay(targetDay: number): Date {
@@ -174,38 +204,38 @@ describe('Day name parsing', () => {
         return result;
     }
 
-    it('should resolve "Viernes" to the most recent Friday', () => {
+    it('should resolve "Viernes" to the most recent Friday', async () => {
         const message = "Viernes\nCliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const expected = lastOccurrenceOfDay(5);
         expect(date).toEqual(expected);
     });
 
-    it('should resolve "lunes" (lowercase) to the most recent Monday', () => {
+    it('should resolve "lunes" (lowercase) to the most recent Monday', async () => {
         const message = "lunes\nCliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const expected = lastOccurrenceOfDay(1);
         expect(date).toEqual(expected);
     });
 
-    it('should resolve "miercoles" (no accent) to the most recent Wednesday', () => {
+    it('should resolve "miercoles" (no accent) to the most recent Wednesday', async () => {
         const message = "miercoles\nCliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const expected = lastOccurrenceOfDay(3);
         expect(date).toEqual(expected);
     });
 
-    it('should resolve "miércoles" (with accent) to the most recent Wednesday', () => {
+    it('should resolve "miércoles" (with accent) to the most recent Wednesday', async () => {
         const message = "miércoles\nCliente Valido\n10x10x10";
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const expected = lastOccurrenceOfDay(3);
         expect(date).toEqual(expected);
     });
 
-    it('should return today if the day name matches today', () => {
+    it('should return today if the day name matches today', async () => {
         const todayName = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date().getDay()];
         const message = `${todayName}\nCliente Valido\n10x10x10`;
-        const { date } = parseDeliveryMessage(message);
+        const { date } = await parseDeliveryMessage(prismaMock, message);
         const today = new Date();
         expect(date).toEqual(today);
     });

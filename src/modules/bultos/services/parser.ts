@@ -1,5 +1,5 @@
-// Mock client database — replace with real lookup as needed
-const VALID_CLIENTS = new Set(["Cliente Valido", "Cliente Valido 2"]);
+import { PrismaClient } from '@prisma/client';
+import { findClient } from './storage';
 
 interface Package {
     length: number;
@@ -62,14 +62,11 @@ function parseDateLine(line: string): Date | null {
     const match = line.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
     if (match) {
         const day = parseInt(match[1], 10);
-        const month = parseInt(match[2], 10) - 1; // months are 0-indexed in JS
+        const month = parseInt(match[2], 10) - 1;
         const year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
 
         const date = new Date(year, month, day);
-
-        // Sanity check — invalid dates like 31/02 would shift
         if (date.getDate() !== day || date.getMonth() !== month) return null;
-
         return date;
     }
 
@@ -143,12 +140,10 @@ export function hasErrors(delivery: Delivery): boolean {
  *   - A numeric date (e.g. "05/06" or "05/06/2025")
  * If no date is found, the current date is used.
  *
- * The driver optionally includes a client name on its own line before the
- * package measurements. The parser groups measurements under the most
- * recently seen client name, validates it against the database, and
- * accumulates errors for invalid clients or malformed measurements.
+ * Client names are validated against the database via findClient.
+ * Invalid or missing client names are recorded in the delivery's errors array.
  */
-export function parseDeliveryMessage(message: string): DeliveryMessage {
+export async function parseDeliveryMessage(prisma: PrismaClient, message: string): Promise<DeliveryMessage> {
     const lines = message.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
 
     let date: Date | null = null;
@@ -186,12 +181,12 @@ export function parseDeliveryMessage(message: string): DeliveryMessage {
             currentDelivery.errors.push(`Medición inválida: "${line}"`);
         } else {
             const clientName = line;
-            const isValid = VALID_CLIENTS.has(clientName);
+            const found = await findClient(prisma, clientName);
 
             currentDelivery = {
                 client: clientName,
                 packages: [],
-                errors: isValid ? [] : ["Cliente no encontrado en la base de datos"],
+                errors: found ? [] : ["Cliente no encontrado en la base de datos"],
             };
             deliveries.push(currentDelivery);
         }
