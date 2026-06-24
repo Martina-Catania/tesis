@@ -144,7 +144,7 @@ model Package {
 // Any subset of fields may be present depending on how far parsing got.
 model DeliveryError {
   id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now()) @map("created_at")
+  date      DateTime @default(now())
 
   rawMessage String?  @map("raw_message") // the original unparsed message
 
@@ -159,5 +159,5 @@ model DeliveryError {
   errors Json?
 
   @@index([clientId])
-  @@index([createdAt])
+  @@index([date])
 }
