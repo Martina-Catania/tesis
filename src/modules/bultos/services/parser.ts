@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../../shared/db/prisma';
 import { findClient } from './storage';
 
 interface Package {
@@ -143,8 +143,9 @@ export function hasErrors(delivery: Delivery): boolean {
  * Client names are validated against the database via findClient.
  * Invalid or missing client names are recorded in the delivery's errors array.
  */
-export async function parseDeliveryMessage(prisma: PrismaClient, message: string): Promise<DeliveryMessage> {
+export async function parseDeliveryMessage(prisma: any, message: string): Promise<DeliveryMessage> {
     const lines = message.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    console.log(`[Bultos Parser] Parsing delivery message: ${lines.length} lines`);
 
     let date: Date | null = null;
     const deliveries: Delivery[] = [];
@@ -154,6 +155,7 @@ export async function parseDeliveryMessage(prisma: PrismaClient, message: string
         const parsedDate = parseDateLine(line);
         if (parsedDate) {
             date = parsedDate;
+            console.log(`[Bultos Parser] Date parsed from line "${line}": ${date.toISOString()}`);
             continue;
         }
 
@@ -161,6 +163,7 @@ export async function parseDeliveryMessage(prisma: PrismaClient, message: string
 
         if (pkg) {
             if (!currentDelivery) {
+                console.log(`[Bultos Parser] Package line encountered before any client: "${line}", creating anonymous delivery`);
                 currentDelivery = {
                     client: "Desconocido",
                     packages: [],
@@ -168,6 +171,7 @@ export async function parseDeliveryMessage(prisma: PrismaClient, message: string
                 };
                 deliveries.push(currentDelivery);
             }
+            console.log(`[Bultos Parser] Package parsed from line "${line}": ${pkg.quantity}x ${pkg.length}x${pkg.width}x${pkg.height}`);
             currentDelivery.packages.push(pkg);
         } else if (looksLikeMeasurement(line)) {
             if (!currentDelivery) {
@@ -178,10 +182,15 @@ export async function parseDeliveryMessage(prisma: PrismaClient, message: string
                 };
                 deliveries.push(currentDelivery);
             }
+            console.log(`[Bultos Parser] Invalid measurement line: "${line}"`);
             currentDelivery.errors.push(`Medición inválida: "${line}"`);
         } else {
             const clientName = line;
             const found = await findClient(prisma, clientName);
+
+            if (!found) {
+                console.log(`[Bultos Parser] Client not recognised: "${clientName}"`);
+            }
 
             currentDelivery = {
                 client: clientName,
@@ -192,8 +201,10 @@ export async function parseDeliveryMessage(prisma: PrismaClient, message: string
         }
     }
 
-    return {
+    const result: DeliveryMessage = {
         date: date ?? new Date(),
         deliveries,
     };
+    console.log(`[Bultos Parser] Parsing complete: ${deliveries.length} deliveries, date: ${result.date.toISOString()}`);
+    return result;
 }

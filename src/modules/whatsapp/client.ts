@@ -2,6 +2,7 @@ import { GraphApi } from './graph-api';
 import { Message, RawMessage } from './message';
 import { Status, RawStatus } from './status';
 import { Cache } from '../../shared/utils';
+import { handleMeasurementMessage } from '../bultos/controllers';
 
 export class Conversation {
 	static async handleMessage(
@@ -12,14 +13,7 @@ export class Conversation {
 
 		switch (message.type) {
 			case 'text': {
-				const replyText = `Mensaje recibido: "${message.text}"`;
-
-				await GraphApi.sendTextMessage(
-					message.id,
-					senderPhoneNumberId,
-					message.senderPhoneNumber,
-					replyText,
-				);
+				await handleMeasurementMessage(senderPhoneNumberId, message);
 				break;
 			}
 
