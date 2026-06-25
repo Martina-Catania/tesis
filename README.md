@@ -1,5 +1,11 @@
 # catania-tesis
 
+TO-DO:
+
+- Check known clients and addresses before storing remito (otherwise error)
+- Ensure captured address is the delivery address (found in observations **usually**) and not the fiscal
+- Apparently there can be several remitos for the same client in a single day and drivers will write "Total" in one of them, discard the others
+
 What it does so far
 --------------------
 
