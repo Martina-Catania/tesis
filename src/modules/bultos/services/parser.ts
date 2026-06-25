@@ -1,23 +1,5 @@
-import { prisma } from '../../../shared/db/prisma';
 import { findClient } from './storage';
-
-interface Package {
-    length: number;
-    width: number;
-    height: number;
-    quantity: number;
-}
-
-interface Delivery {
-    client: string;
-    packages: Package[];
-    errors: string[];
-}
-
-interface DeliveryMessage {
-    date: Date;
-    deliveries: Delivery[];
-}
+import { Package, Delivery, DeliveryMessage } from '../types';
 
 const DAY_NAMES: Record<string, number> = {
     "lunes": 1,

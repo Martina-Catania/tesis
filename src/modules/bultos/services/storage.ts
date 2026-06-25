@@ -1,29 +1,5 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export interface PackageInput {
-    length: number;
-    width: number;
-    height: number;
-    quantity: number;
-}
-
-export interface DeliveryInput {
-    clientId: number;
-    date: Date;
-    periodId?: number;
-    packages: PackageInput[];
-}
-
-export interface DeliveryErrorInput {
-    rawMessage: string;
-    date: Date;
-    clientName?: string;
-    clientId?: number;
-    packages?: PackageInput[];
-    errors: string[];
-}
+import { PrismaClient } from '@prisma/client';
+import { Package, DeliveryInput, DeliveryErrorInput } from '../types';
 
 // ─── Client lookup ───────────────────────────────────────────────────────────
 

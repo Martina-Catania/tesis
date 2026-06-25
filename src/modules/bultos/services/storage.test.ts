@@ -5,8 +5,8 @@ import {
     findActiveTariffPeriod,
     saveDelivery,
     saveDeliveryError,
-    PackageInput,
 } from './storage';
+import { Package } from '../types';
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ const mockPeriod = {
     validFrom: new Date('2026-05-12'),
 };
 
-const mockPackages: PackageInput[] = [
+const mockPackages: Package[] = [
     { length: 10, width: 20, height: 30, quantity: 2 },
     { length: 5,  width: 5,  height: 5,  quantity: 1 },
 ];
@@ -191,7 +191,7 @@ describe('saveDeliveryError', () => {
     });
 
     it('saves a delivery error with partial packages when parsing got partway through', async () => {
-        const partialPackages: PackageInput[] = [{ length: 10, width: 20, height: 30, quantity: 1 }];
+        const partialPackages: Package[] = [{ length: 10, width: 20, height: 30, quantity: 1 }];
         prismaMock.deliveryError.create.mockResolvedValue({ ...mockSavedError, packages: partialPackages });
 
         await saveDeliveryError(prismaMock, {
