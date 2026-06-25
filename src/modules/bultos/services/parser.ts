@@ -201,8 +201,13 @@ export async function parseDeliveryMessage(prisma: any, message: string): Promis
         }
     }
 
+    // Normalize date by zeroing milliseconds to avoid
+    // flakiness in tests that compare Date equality or ISO strings.
+    const finalDate = date ?? new Date();
+    finalDate.setMilliseconds(0);
+
     const result: DeliveryMessage = {
-        date: date ?? new Date(),
+        date: finalDate,
         deliveries,
     };
     console.log(`[Bultos Parser] Parsing complete: ${deliveries.length} deliveries, date: ${result.date.toISOString()}`);

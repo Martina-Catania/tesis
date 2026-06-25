@@ -12,7 +12,12 @@ import { parseDeliveryMessage } from './parser';
 const prismaMock = mockDeep<PrismaClient>();
 
 beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
     mockReset(prismaMock);
+});
+
+afterEach(() => {
+    jest.restoreAllMocks();
 });
 
 // Makes prismaMock behave as if the given names are valid clients in the DB.
@@ -158,9 +163,11 @@ describe('Date parsing', () => {
 
     it('should attach the current date if none is provided', async () => {
         const before = new Date();
+        before.setMilliseconds(0);
         const message = "Cliente Valido\n10x10x10";
         const { date } = await parseDeliveryMessage(prismaMock, message);
         const after = new Date();
+        after.setMilliseconds(0);
         expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime());
         expect(date.getTime()).toBeLessThanOrEqual(after.getTime());
     });
@@ -183,9 +190,11 @@ describe('Date parsing', () => {
 
     it('should ignore an invalid date and fall back to current date', async () => {
         const before = new Date();
+        before.setMilliseconds(0);
         const message = "31/02/2025\nCliente Valido\n10x10x10"; // Feb 31 doesn't exist
         const { date } = await parseDeliveryMessage(prismaMock, message);
         const after = new Date();
+        after.setMilliseconds(0);
         expect(date.getTime()).toBeGreaterThanOrEqual(before.getTime());
         expect(date.getTime()).toBeLessThanOrEqual(after.getTime());
     });
@@ -201,6 +210,8 @@ describe('Day name parsing', () => {
         const daysAgo = (today.getDay() - targetDay + 7) % 7;
         const result = new Date(today);
         result.setDate(today.getDate() - daysAgo);
+        // Normalize milliseconds to match parser behavior
+        result.setMilliseconds(0);
         return result;
     }
 
@@ -237,6 +248,7 @@ describe('Day name parsing', () => {
         const message = `${todayName}\nCliente Valido\n10x10x10`;
         const { date } = await parseDeliveryMessage(prismaMock, message);
         const today = new Date();
+        today.setMilliseconds(0);
         expect(date).toEqual(today);
     });
 });

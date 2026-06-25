@@ -13,7 +13,12 @@ import {
 const prismaMock = mockDeep<PrismaClient>();
 
 beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
     mockReset(prismaMock);
+});
+
+afterEach(() => {
+    jest.restoreAllMocks();
 });
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────

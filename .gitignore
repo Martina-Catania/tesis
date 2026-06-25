@@ -22,3 +22,6 @@ node_modules/
 /generated/prisma
 dev.db
 /generated/prisma
+
+## Testing
+/coverage
