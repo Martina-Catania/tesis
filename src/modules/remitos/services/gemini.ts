@@ -5,11 +5,7 @@ const genai = new GoogleGenAI({
 });
 
 const DEFAULT_PROMPT =
-    "Identifica el cliente, la dirección y la cant de paquetes entregados " +
-    "(un numero en un circulo) en este remito. " +
-    "Contesta con el formato: " +
-    "'Cliente: [nombre del cliente]\\n Dir: [dirección del cliente]\\n Bultos: [cant de paquetes]'. " +
-    "No agregues texto adicional, solo responde con el formato indicado.";
+    "Identifica el cliente, la dirección de envio (manuscrita usualmente) y la cantidad de paquetes entregados (un numero en un circulo) en este remito. Ignora cualquier texto tachado. Contesta con el formato: 'Cliente: [nombre del cliente]\\n Dir: [dirección del cliente]\\n Bultos: [cant de paquetes]'. No agregues texto adicional, solo responde con el formato indicado.";
 
 /**
  * Sends a base64-encoded image to Gemini Vision and returns the raw extracted text.
