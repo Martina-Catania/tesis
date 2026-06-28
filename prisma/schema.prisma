@@ -50,6 +50,8 @@ model Address {
   clientId Int    @map("client_id")
   client   Client @relation(fields: [clientId], references: [id])
 
+  remitos  Remito[]
+
   @@index([clientId])
 }
 
@@ -188,10 +190,15 @@ model Remito {
   clientId Int?    @map("client_id")
   client   Client? @relation(fields: [clientId], references: [id])
 
+  // Resolved address FK — set when the extracted address matches a known client address
+  addressId Int?     @map("address_id")
+  resolvedAddress Address? @relation(fields: [addressId], references: [id])
+
   // Whether a human has reviewed / confirmed the extracted data
   confirmed Boolean @default(false)
 
   @@index([clientId])
+  @@index([addressId])
   @@index([date])
   @@index([confirmed])
 }

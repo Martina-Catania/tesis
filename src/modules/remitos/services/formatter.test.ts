@@ -60,6 +60,23 @@ describe('formatRemitoReply', () => {
         expect(result).toContain('⚠️ *Remito guardado con advertencias*');
     });
 
+    it('shows the unknown-client error from DB validation alongside extracted data', () => {
+        const remito: ParsedRemito = {
+            data: { clientName: 'Desconocido S.A.', address: 'Calle 1', packages: 2 },
+            errors: ['Cliente desconocido: "Desconocido S.A."'],
+        };
+
+        const result = formatRemitoReply(remito);
+
+        expect(result).toBe(
+            '⚠️ *Remito guardado con advertencias*\n\n' +
+            '*Cliente:* Desconocido S.A.\n' +
+            '*Dir:* Calle 1\n' +
+            '*Bultos:* 2\n\n' +
+            '   - Cliente desconocido: "Desconocido S.A."',
+        );
+    });
+
     // ─── Full failure ──────────────────────────────────────────────────────────
 
     it('shows a failure header with only errors and no data block when nothing was extracted', () => {

@@ -69,6 +69,7 @@ export interface RemitoInput {
     address?: string;
     packages?: number;
     clientId?: number;
+    addressId?: number;
 }
 
 /**
