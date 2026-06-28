@@ -252,3 +252,72 @@ describe('Day name parsing', () => {
         expect(date).toEqual(today);
     });
 });
+describe('Irrelevant message handling', () => {
+    it('ignores a plain chat message with no measurements or known structure', async () => {
+        const message = "Hiii";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('ignores a greeting with punctuation', async () => {
+        const message = "Hola, cómo estás?";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('ignores a message that is only a date', async () => {
+        const message = "05/06";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('ignores a message that is only a day name', async () => {
+        const message = "Viernes";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('ignores a valid client name with no following measurements', async () => {
+        mockValidClients('Cliente Valido');
+        const message = "Cliente Valido";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('ignores an unrecognised client name with no following measurements', async () => {
+        const message = "Cliente Invalido";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('ignores a blank / whitespace-only message', async () => {
+        const message = "   \n  \n  ";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([]);
+    });
+
+    it('keeps a delivery with an invalid measurement line (error, but clearly intended)', async () => {
+        mockValidClients('Cliente Valido');
+        const message = "Cliente Valido\n10x20x30x10x10";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([
+            {
+                client: "Cliente Valido",
+                packages: [],
+                errors: ['Medición inválida: "10x20x30x10x10"'],
+            },
+        ]);
+    });
+
+    it('keeps a delivery for an unrecognised client that has valid packages', async () => {
+        const message = "Cliente Invalido\n10x20x30";
+        const { deliveries } = await parseDeliveryMessage(prismaMock, message);
+        expect(deliveries).toEqual([
+            {
+                client: "Cliente Invalido",
+                packages: [{ length: 10, width: 20, height: 30, quantity: 1 }],
+                errors: ["Cliente no encontrado en la base de datos"],
+            },
+        ]);
+    });
+});

@@ -13,6 +13,12 @@ export async function handleMeasurementMessage(
 
     try {
         const { date, deliveries } = await parseDeliveryMessage(prisma, message.text as string);
+
+        if (deliveries.length === 0) {
+            console.log(`[Bultos Controller] Message contains no deliveries, ignoring: ${message.senderPhoneNumber}`);
+            return;
+        }
+
         const period = await findActiveTariffPeriod(prisma, date);
 
         for (const delivery of deliveries) {

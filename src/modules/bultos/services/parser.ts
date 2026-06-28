@@ -145,7 +145,9 @@ export async function parseDeliveryMessage(prisma: any, message: string): Promis
 
         if (pkg) {
             if (!currentDelivery) {
-                console.log(`[Bultos Parser] Package line encountered before any client: "${line}", creating anonymous delivery`);
+                // Measurements before any client name — collect them in a
+                // temporary anonymous delivery that will be finalised below.
+                console.log(`[Bultos Parser] Package line encountered before any client: "${line}", deferring to anonymous delivery`);
                 currentDelivery = {
                     client: "Desconocido",
                     packages: [],
@@ -183,6 +185,21 @@ export async function parseDeliveryMessage(prisma: any, message: string): Promis
         }
     }
 
+    // A delivery is only relevant if it has at least one package, OR if a
+    // measurement line was attempted but failed to parse (i.e. errors that are
+    // not solely "client not found" / "no valid client").  A bare client name
+    // with no measurements — recognised or not — means the message was not
+    // intended for this service.
+    const CLIENT_ONLY_ERRORS = new Set([
+        "Cliente no encontrado en la base de datos",
+        "No se encontró un cliente válido en el mensaje",
+    ]);
+    const relevantDeliveries = deliveries.filter(
+        (d) =>
+            d.packages.length > 0 ||
+            d.errors.some((e) => !CLIENT_ONLY_ERRORS.has(e)),
+    );
+
     // Normalize date by zeroing milliseconds to avoid
     // flakiness in tests that compare Date equality or ISO strings.
     const finalDate = date ?? new Date();
@@ -190,8 +207,8 @@ export async function parseDeliveryMessage(prisma: any, message: string): Promis
 
     const result: DeliveryMessage = {
         date: finalDate,
-        deliveries,
+        deliveries: relevantDeliveries,
     };
-    console.log(`[Bultos Parser] Parsing complete: ${deliveries.length} deliveries, date: ${result.date.toISOString()}`);
+    console.log(`[Bultos Parser] Parsing complete: ${relevantDeliveries.length} deliveries, date: ${result.date.toISOString()}`);
     return result;
 }
