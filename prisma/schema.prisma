@@ -28,6 +28,7 @@ model Client {
   aliases    Alias[]
   addresses  Address[]
   deliveries Delivery[]
+  remitos    Remito[]
 }
 
 model Alias {
@@ -48,6 +49,8 @@ model Address {
 
   clientId Int    @map("client_id")
   client   Client @relation(fields: [clientId], references: [id])
+
+  remitos  Remito[]
 
   @@index([clientId])
 }
@@ -104,7 +107,7 @@ model TariffHourlyRate {
   @@index([periodId])
 }
 
-// ─── Deliveries ──────────────────────────────────────────────────────────────
+// ─── Deliveries (Bultos) ─────────────────────────────────────────────────────
 
 model Delivery {
   id   Int      @id @default(autoincrement())
@@ -159,5 +162,64 @@ model DeliveryError {
   errors Json?
 
   @@index([clientId])
+  @@index([date])
+}
+
+// ─── Remitos ─────────────────────────────────────────────────────────────────
+
+// A remito is a delivery receipt photo sent by a driver via WhatsApp image.
+// Gemini Vision extracts the client name, delivery address, and package count.
+// Remitos are stored separately from Deliveries (bultos measurements) and
+// are later matched and exported together as complete delivery records.
+model Remito {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Date the delivery took place — parsed from the remito or defaulting to today
+  date      DateTime
+
+  // Raw text returned by Gemini Vision, kept for auditing / re-parsing
+  rawText   String   @map("raw_text")
+
+  // Extracted fields — null if Gemini could not identify them
+  clientName String?  @map("client_name") // as written on the remito
+  address    String?
+  packages   Int?     // package count circled on the remito
+
+  // Resolved client FK — null until a human or automated job confirms the match
+  clientId Int?    @map("client_id")
+  client   Client? @relation(fields: [clientId], references: [id])
+
+  // Resolved address FK — set when the extracted address matches a known client address
+  addressId Int?     @map("address_id")
+  resolvedAddress Address? @relation(fields: [addressId], references: [id])
+
+  // Whether a human has reviewed / confirmed the extracted data
+  confirmed Boolean @default(false)
+
+  @@index([clientId])
+  @@index([addressId])
+  @@index([date])
+  @@index([confirmed])
+}
+
+// Stores remito images whose Gemini response could not be parsed or
+// whose extracted data failed validation.
+model RemitoError {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+  date      DateTime
+
+  // Raw Gemini response that triggered the error (may be empty/null if the API call itself failed)
+  rawText String? @map("raw_text")
+
+  // Whatever we managed to extract before hitting the error
+  clientName String? @map("client_name")
+  address    String?
+  packages   Int?
+
+  // All error messages accumulated during parsing
+  errors Json
+
   @@index([date])
 }

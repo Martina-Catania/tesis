@@ -1,5 +1,9 @@
 # catania-tesis
 
+TO-DO:
+
+- Apparently there can be several remitos for the same client in a single day and drivers will write "Total" in one of them, discard the others
+
 What it does so far
 --------------------
 
@@ -17,6 +21,13 @@ The biggest changes I made so far are changing the code from Common-JS to EMS (r
 	- `controllers.ts` and `types.ts`: controller layer and type definitions for the domain.
 	- `services/formatter.ts` and `services/parser.ts`: utilities to parse and format package data for storage and messaging; these have accompanying unit tests (`formatter.test.ts`, `parser.test.ts`).
 	- `services/storage.ts`: simple storage adapter used by the bultos services, with tests in `storage.test.ts`.
+
+- **Remitos domain**: Processes remito photos sent by WhatsApp under [src/modules/remitos](src/modules/remitos).
+   - `services/gemini.ts`: sends the image to Gemini Vision to extract the client, address, and package count, with retries for transient errors.
+   - `services/parser.ts`: turns Gemini's raw text into structured remito data and records any missing or unrecognized fields.
+   - `services/storage.ts`: matches extracted addresses against active client addresses, saves successful remitos, and stores errors when the data cannot be fully resolved.
+   - `services/formatter.ts`: generates the WhatsApp reply sent back to the driver after processing.
+   - `controllers.ts`: ties the WhatsApp download, Gemini extraction, validation, persistence, and response together.
 
 NOTE: Packages with errors will get displayed in a seperate page when exported to Excel and admin will manually fix them, no way to correct them yet via WhatsApp.
 Approach validated with PO (admin).
