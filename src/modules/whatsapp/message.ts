@@ -5,10 +5,15 @@ export interface RawMessage {
   type: string;
   text?: { body: string };
   image?: { id: string; caption?: string };
-  interactive?: { button_reply: { id: string } };
+  interactive?: {
+    type: 'button_reply' | 'list_reply';
+    button_reply?: { id: string; title: string };
+    list_reply?: { id: string; title: string };
+  };
+  context?: { id: string };
 }
 
-export type MessageType = 'text' | 'image' | 'unknown' | string;
+export type MessageType = 'text' | 'image' | 'interactive' | 'unknown' | string;
 
 export class Message {
   id: string;
@@ -17,6 +22,8 @@ export class Message {
   text?: string;
   imageId?: string | null;
   caption?: string | null;
+  contextMessageId?: string;
+  interactiveReplyId?: string;
 
   constructor(rawMessage: RawMessage) {
     this.id = rawMessage.id;
@@ -32,7 +39,11 @@ export class Message {
       this.imageId = rawMessage.image?.id ?? null;
       this.caption = rawMessage.image?.caption ?? null;
     } else if (type === 'interactive') {
-      this.type = rawMessage.interactive!.button_reply.id;
+      this.type = 'interactive';
+      this.contextMessageId = rawMessage.context?.id;
+      const interactive = rawMessage.interactive!;
+      this.interactiveReplyId =
+        interactive.button_reply?.id ?? interactive.list_reply?.id;
     } else {
       this.type = 'unknown';
     }

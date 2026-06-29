@@ -3,7 +3,7 @@ import { Message, RawMessage } from './message';
 import { Status, RawStatus } from './status';
 import { Cache } from '../../shared/utils';
 import { handleMeasurementMessage } from '../bultos/controllers';
-import { handleRemitoMessage } from '../remitos/controllers';
+import { handleRemitoMessage, handleRemitoInteractiveReply } from '../remitos/controllers';
 
 export class Conversation {
 	static async handleMessage(
@@ -20,6 +20,21 @@ export class Conversation {
 
 			case 'image': {
 				await handleRemitoMessage(senderPhoneNumberId, message);
+				break;
+			}
+
+			case 'interactive': {
+				// Try to match the reply against a pending remito address-confirmation flow.
+				// If it doesn't belong to us, fall through to the default handler.
+				const handled = await handleRemitoInteractiveReply(senderPhoneNumberId, message);
+				if (!handled) {
+					await GraphApi.sendTextMessage(
+						message.id,
+						senderPhoneNumberId,
+						message.senderPhoneNumber,
+						'No entendí tu respuesta. Por favor, usá los botones que te enviamos.',
+					);
+				}
 				break;
 			}
 

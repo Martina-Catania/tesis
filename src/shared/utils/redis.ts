@@ -29,6 +29,24 @@ export class Cache {
   }
 
   /**
+   * Stores a key-value pair with an explicit TTL in seconds.
+   *
+   * Used for multi-turn flows (e.g. pending address confirmation) where the
+   * value needs to be retrieved later and a 15s TTL would be too short.
+   * Defaults to 10 minutes — enough time for a driver to read and tap a button.
+   */
+  static async set(key: string, value: string, ttlSeconds = 600): Promise<void> {
+    await client.set(key, value, { EX: ttlSeconds });
+  }
+
+  /**
+   * Retrieves the value stored under a key, or null if it doesn't exist.
+   */
+  static async get(key: string): Promise<string | null> {
+    return client.get(key);
+  }
+
+  /**
    * Removes a key and returns true if it existed.
    *
    * Optionally, you can measure ingress latency from Cloud API webhooks via

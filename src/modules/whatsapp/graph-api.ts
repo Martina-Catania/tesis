@@ -125,6 +125,38 @@ export class GraphApi {
     return this.#makeApiCall(messageId, senderPhoneNumberId, requestBody);
   }
 
+  /**
+   * Sends a list-picker interactive message (supports more than 3 options,
+   * unlike reply buttons which are capped at 3).
+   */
+  static async messageWithInteractiveList(
+    messageId: string | undefined,
+    senderPhoneNumberId: string,
+    recipientPhoneNumber: string,
+    messageText: string,
+    buttonLabel: string,
+    sections: Array<{
+      title: string;
+      rows: Array<{ id: string; title: string; description?: string }>;
+    }>,
+  ): Promise<unknown> {
+    const requestBody = {
+      messaging_product: 'whatsapp',
+      to: recipientPhoneNumber,
+      type: 'interactive',
+      interactive: {
+        type: 'list',
+        body: { text: messageText },
+        action: {
+          button: buttonLabel,
+          sections,
+        },
+      },
+    };
+
+    return this.#makeApiCall(messageId, senderPhoneNumberId, requestBody);
+  }
+
   static async messageWithUtilityTemplate(
     messageId: string | undefined,
     senderPhoneNumberId: string,

@@ -1,38 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { Package, DeliveryInput, DeliveryErrorInput } from '../types';
-
-// ─── Client lookup ───────────────────────────────────────────────────────────
-
-/**
- * Finds a client by their canonical name or any of their aliases.
- * Returns the client id and name, or null if not found.
- */
-export async function findClient(prisma: PrismaClient, name: string) {
-    console.log(`[Bultos Storage] Looking up client by name: "${name}"`);
-
-    const byName = await prisma.client.findUnique({
-        where: { name },
-        select: { id: true, name: true },
-    });
-    if (byName) {
-        console.log(`[Bultos Storage] Client found by name: "${name}" (id: ${byName.id})`);
-        return byName;
-    }
-
-    console.log(`[Bultos Storage] Client not found by name, trying alias: "${name}"`);
-    const byAlias = await prisma.alias.findUnique({
-        where: { alias: name },
-        select: { client: { select: { id: true, name: true } } },
-    });
-
-    const client = byAlias?.client ?? null;
-    if (client) {
-        console.log(`[Bultos Storage] Client found by alias: "${name}" → "${client.name}" (id: ${client.id})`);
-    } else {
-        console.log(`[Bultos Storage] Client not found by name or alias: "${name}"`);
-    }
-    return client;
-}
+import { DeliveryInput, DeliveryErrorInput } from '../types';
 
 // ─── Tariff period lookup ─────────────────────────────────────────────────────
 

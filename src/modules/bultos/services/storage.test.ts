@@ -1,7 +1,7 @@
 import { mockDeep, mockReset } from 'jest-mock-extended';
 import { PrismaClient } from '@prisma/client';
+import { findClient } from '../../../shared/db/client';
 import {
-    findClient,
     findActiveTariffPeriod,
     saveDelivery,
     saveDeliveryError,

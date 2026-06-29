@@ -1,8 +1,9 @@
 import { prisma } from '../../shared/db/prisma';
+import { findClient } from '../../shared/db/client';
 import { GraphApi } from '../whatsapp/graph-api';
 import { Message } from '../whatsapp/message';
 import { parseDeliveryMessage, hasErrors } from './services/parser';
-import { findClient, findActiveTariffPeriod, saveDelivery, saveDeliveryError } from './services/storage';
+import { findActiveTariffPeriod, saveDelivery, saveDeliveryError } from './services/storage';
 import { formatDeliveryReply } from './services/formatter';
 
 export async function handleMeasurementMessage(
