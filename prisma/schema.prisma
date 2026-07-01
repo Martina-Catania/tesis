@@ -27,8 +27,9 @@ model Client {
 
   aliases    Alias[]
   addresses  Address[]
-  deliveries Delivery[]
+  deliveries MeasurementData[]
   remitos    Remito[]
+  matches    DeliveryMatch[]
 }
 
 model Alias {
@@ -50,7 +51,7 @@ model Address {
   clientId Int    @map("client_id")
   client   Client @relation(fields: [clientId], references: [id])
 
-  remitos  Remito[]
+  remitos Remito[]
 
   @@index([clientId])
 }
@@ -63,9 +64,9 @@ model TariffPeriod {
   label     String   @unique            // e.g. "Mayo 2026"
   validFrom DateTime @map("valid_from") // e.g. 2026-05-12
 
-  rates        TariffRate[] // volume-bracket rates per zone
-  hourlyRates  TariffHourlyRate[] // only for CABA
-  deliveries   Delivery[]
+  rates       TariffRate[]       // volume-bracket rates per zone
+  hourlyRates TariffHourlyRate[] // only for CABA
+  deliveries  MeasurementData[]
 }
 
 /**
@@ -80,12 +81,12 @@ Each row = one bracket + zone combination within a period.
   > 1.00 m3 (por m3)
  */
 model TariffRate {
-  id              Int    @id @default(autoincrement())
-  volumeMinM3     Float  @map("volume_min_m3") // inclusive lower bound (0 for first bracket)
-  volumeMaxM3     Float? @map("volume_max_m3") // null means "no upper bound" (per-m3 rate)
-  perM3           Boolean @default(false) @map("per_m3") // true for the "Más de 1m3, por m3" row
-  zone            Zone
-  price           Float
+  id          Int     @id @default(autoincrement())
+  volumeMinM3 Float   @map("volume_min_m3") // inclusive lower bound (0 for first bracket)
+  volumeMaxM3 Float?  @map("volume_max_m3") // null means "no upper bound" (per-m3 rate)
+  perM3       Boolean @default(false) @map("per_m3") // true for the "Más de 1m3, por m3" row
+  zone        Zone
+  price       Float
 
   periodId Int          @map("period_id")
   period   TariffPeriod @relation(fields: [periodId], references: [id])
@@ -107,9 +108,9 @@ model TariffHourlyRate {
   @@index([periodId])
 }
 
-// ─── Deliveries (Bultos) ─────────────────────────────────────────────────────
+// ─── Measurement Data (Bultos) ────────────────────────────────────────────────
 
-model Delivery {
+model MeasurementData {
   id   Int      @id @default(autoincrement())
   date DateTime @default(now())
 
@@ -121,6 +122,7 @@ model Delivery {
   period   TariffPeriod? @relation(fields: [periodId], references: [id])
 
   packages Package[]
+  match    DeliveryMatch?
 
   @@index([clientId])
   @@index([periodId])
@@ -135,25 +137,25 @@ model Package {
   quantity Int
   volume   Float
 
-  deliveryId Int      @map("delivery_id")
-  delivery   Delivery @relation(fields: [deliveryId], references: [id])
+  measurementDataId Int             @map("measurement_data_id")
+  measurementData   MeasurementData @relation(fields: [measurementDataId], references: [id])
 
-  @@index([deliveryId])
+  @@index([measurementDataId])
 }
 
-// ─── Delivery Errors ─────────────────────────────────────────────────────────
+// ─── Measurement Data Errors ──────────────────────────────────────────────────
 
-// Stores raw delivery messages that failed to parse cleanly.
+// Stores raw measurement data messages that failed to parse cleanly.
 // Any subset of fields may be present depending on how far parsing got.
-model DeliveryError {
-  id        Int      @id @default(autoincrement())
-  date      DateTime @default(now())
+model MeasurementDataError {
+  id   Int      @id @default(autoincrement())
+  date DateTime @default(now())
 
-  rawMessage String?  @map("raw_message") // the original unparsed message
+  rawMessage String? @map("raw_message") // the original unparsed message
 
   // Client info extracted from the message, if any
-  clientName String?  @map("client_name") // raw name from message, if found
-  clientId   Int?     @map("client_id")   // resolved FK if client was found in DB (no relation constraint intentionally)
+  clientName String? @map("client_name") // raw name from message, if found
+  clientId   Int?    @map("client_id")   // resolved FK if client was found in DB (no relation constraint intentionally)
 
   // Packages parsed before or around the error — stored as JSON since they are probably incomplete/unvalidated
   packages Json?
@@ -163,39 +165,42 @@ model DeliveryError {
 
   @@index([clientId])
   @@index([date])
+  @@map("MeasurementDataError")
 }
 
-// ─── Remitos ─────────────────────────────────────────────────────────────────
+// ─── Remitos ──────────────────────────────────────────────────────────────────
 
 // A remito is a delivery receipt photo sent by a driver via WhatsApp image.
 // Gemini Vision extracts the client name, delivery address, and package count.
-// Remitos are stored separately from Deliveries (bultos measurements) and
+// Remitos are stored separately from MeasurementData and
 // are later matched and exported together as complete delivery records.
 model Remito {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now()) @map("created_at")
 
   // Date the delivery took place — parsed from the remito or defaulting to today
-  date      DateTime
+  date DateTime
 
   // Raw text returned by Gemini Vision, kept for auditing / re-parsing
-  rawText   String   @map("raw_text")
+  rawText String @map("raw_text")
 
   // Extracted fields — null if Gemini could not identify them
-  clientName String?  @map("client_name") // as written on the remito
+  clientName String? @map("client_name") // as written on the remito
   address    String?
-  packages   Int?     // package count circled on the remito
+  packages   Int?    // package count circled on the remito
 
   // Resolved client FK — null until a human or automated job confirms the match
   clientId Int?    @map("client_id")
   client   Client? @relation(fields: [clientId], references: [id])
 
   // Resolved address FK — set when the extracted address matches a known client address
-  addressId Int?     @map("address_id")
+  addressId       Int?     @map("address_id")
   resolvedAddress Address? @relation(fields: [addressId], references: [id])
 
   // Whether a human has reviewed / confirmed the extracted data
   confirmed Boolean @default(false)
+
+  match DeliveryMatch?
 
   @@index([clientId])
   @@index([addressId])
@@ -222,4 +227,79 @@ model RemitoError {
   errors Json
 
   @@index([date])
+}
+
+// ─── Delivery Matching ────────────────────────────────────────────────────────
+
+// Tracks the last time the matching job ran successfully.
+// There will only ever be one row (id = 1), updated in place.
+model MatchRunLog {
+  id        Int      @id @default(autoincrement())
+  lastRunAt DateTime @map("last_run_at")
+
+  @@map("match_run_log")
+}
+
+// A successful 1-to-1 pairing between a MeasurementData (bulto batch) and a
+// Remito for the same client on the same calendar day.
+// Both sides use unique relations — each record can only belong to one match.
+model DeliveryMatch {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // The matched pair
+  measurementDataId Int             @unique @map("measurement_data_id")
+  measurementData   MeasurementData @relation(fields: [measurementDataId], references: [id])
+
+  remitoId Int    @unique @map("remito_id")
+  remito   Remito @relation(fields: [remitoId], references: [id])
+
+  // Denormalised for quick reporting — copied from MeasurementData at match time
+  clientId Int    @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id])
+
+  // The calendar day both records share (midnight UTC of delivery date)
+  deliveryDate DateTime @map("delivery_date")
+
+  // Package counts from each side (for audit trail)
+  measuredPackages Int @map("measured_packages")
+  remitoPackages   Int @map("remito_packages")
+
+  @@index([clientId])
+  @@index([deliveryDate])
+  @@map("delivery_match")
+}
+
+// A failed or degraded match — created when:
+//   a) one side has errors (MeasurementDataError xor RemitoError), or
+//   b) both sides are valid but package counts differ, or
+//   c) both sides are error records.
+// Stores as much context as was available from both sides.
+model DeliveryError {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // The calendar day of the attempted match
+  deliveryDate DateTime @map("delivery_date")
+
+  // Client context (at least one side must have a clientId for a match attempt)
+  clientId   Int?    @map("client_id")
+  clientName String? @map("client_name") // raw name from whichever side had it
+
+  // Source record IDs — nullable because either side may be an error record
+  measurementDataId      Int? @map("measurement_data_id")       // set if MeasurementData matched
+  measurementDataErrorId Int? @map("measurement_data_error_id") // set if MeasurementDataError matched
+  remitoId               Int? @map("remito_id")                 // set if Remito matched
+  remitoErrorId          Int? @map("remito_error_id")           // set if RemitoError matched
+
+  // Package counts from each side (null if that side had no package data)
+  measuredPackages Int? @map("measured_packages")
+  remitoPackages   Int? @map("remito_packages")
+
+  // All errors accumulated (parse errors + mismatch errors from the matcher)
+  errors Json
+
+  @@index([deliveryDate])
+  @@index([clientId])
+  @@map("delivery_error")
 }
