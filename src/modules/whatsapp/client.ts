@@ -4,6 +4,7 @@ import { Status, RawStatus } from './status';
 import { Cache } from '../../shared/utils';
 import { handleMeasurementMessage } from '../bultos/controllers';
 import { handleRemitoMessage, handleRemitoInteractiveReply } from '../remitos/controllers';
+import { handleMatchTrigger } from '../match/controller';
 
 export class Conversation {
 	static async handleMessage(
@@ -14,7 +15,10 @@ export class Conversation {
 
 		switch (message.type) {
 			case 'text': {
-				await handleMeasurementMessage(senderPhoneNumberId, message);
+				const handled = await handleMatchTrigger(senderPhoneNumberId, message);
+				if (!handled) {
+					await handleMeasurementMessage(senderPhoneNumberId, message);
+				}
 				break;
 			}
 
