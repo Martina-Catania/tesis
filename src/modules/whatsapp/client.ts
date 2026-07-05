@@ -4,7 +4,8 @@ import { Status, RawStatus } from './status';
 import { Cache } from '../../shared/utils';
 import { handleMeasurementMessage } from '../bultos/controllers';
 import { handleRemitoMessage, handleRemitoInteractiveReply } from '../remitos/controllers';
-import { handleMatchTrigger } from '../match/controller';
+import { handleMatchTrigger } from '../match/controllers';
+import { handleAdminCommand, handleAdminInteractiveReply } from '../admin/controllers';
 
 export class Conversation {
 	static async handleMessage(
@@ -15,10 +16,16 @@ export class Conversation {
 
 		switch (message.type) {
 			case 'text': {
-				const handled = await handleMatchTrigger(senderPhoneNumberId, message);
-				if (!handled) {
-					await handleMeasurementMessage(senderPhoneNumberId, message);
-				}
+				// Admin commands take priority (they start with a known keyword prefix)
+				const handledByAdmin = await handleAdminCommand(senderPhoneNumberId, message);
+				if (handledByAdmin) break;
+
+				// "match" trigger
+				const handledByMatch = await handleMatchTrigger(senderPhoneNumberId, message);
+				if (handledByMatch) break;
+
+				// Default: delivery measurement
+				await handleMeasurementMessage(senderPhoneNumberId, message);
 				break;
 			}
 
@@ -28,10 +35,12 @@ export class Conversation {
 			}
 
 			case 'interactive': {
-				// Try to match the reply against a pending remito address-confirmation flow.
-				// If it doesn't belong to us, fall through to the default handler.
-				const handled = await handleRemitoInteractiveReply(senderPhoneNumberId, message);
-				if (!handled) {
+				// Try admin reply first, then remito reply
+				const handledByAdmin = await handleAdminInteractiveReply(senderPhoneNumberId, message);
+				if (handledByAdmin) break;
+
+				const handledByRemito = await handleRemitoInteractiveReply(senderPhoneNumberId, message);
+				if (!handledByRemito) {
 					await GraphApi.sendTextMessage(
 						message.id,
 						senderPhoneNumberId,

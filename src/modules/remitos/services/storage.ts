@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { RemitoInput, RemitoErrorInput, AddressZone } from '../types';
+import { RemitoInput, RemitoErrorInput } from '../types';
 
 // ─── Address matching ─────────────────────────────────────────────────────────
 
@@ -204,39 +204,6 @@ export async function saveRemitoError(prisma: PrismaClient, input: RemitoErrorIn
         return remitoError;
     } catch (error) {
         console.error(`[Remitos Storage] Error saving remito error:`, error);
-        throw error;
-    }
-}
-
-// ─── Create address ───────────────────────────────────────────────────────────
-
-/**
- * Creates a new active address for a client, as confirmed by the driver
- * via interactive reply.
- */
-export async function createAddress(
-    prisma: PrismaClient,
-    clientId: number,
-    address: string,
-    zone: AddressZone,
-) {
-    console.log(
-        `[Remitos Storage] Creating new address for clientId ${clientId}: "${address}" (zone: ${zone})`,
-    );
-
-    try {
-        const newAddress = await prisma.address.create({
-            data: {
-                clientId,
-                address,
-                zone: zone as any, // cast to Prisma Zone enum
-                active: true,
-            },
-        });
-        console.log(`[Remitos Storage] Address created: id ${newAddress.id}`);
-        return newAddress;
-    } catch (error) {
-        console.error(`[Remitos Storage] Error creating address:`, error);
         throw error;
     }
 }
