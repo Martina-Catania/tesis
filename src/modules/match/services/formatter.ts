@@ -21,8 +21,15 @@ const HEADERS = [
  * One row per outcome (success or error). Skipped candidates (only one side
  * present) are not included — they simply have no match yet.
  */
-export function formatMatchRunCsv(result: MatchRunResult): string {
-    const rows: string[][] = [Array.from(HEADERS)];
+export function formatMatchRunCsv(
+    result: MatchRunResult,
+    options: { includeHeader?: boolean } = {},
+): string {
+    const rows: string[][] = [];
+
+    if (options.includeHeader !== false) {
+        rows.push(Array.from(HEADERS));
+    }
 
     for (const outcome of result.outcomes) {
         rows.push(outcomeToRow(outcome));

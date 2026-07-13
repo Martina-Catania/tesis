@@ -3,7 +3,7 @@ import { GraphApi } from '../whatsapp/graph-api';
 import { Message } from '../whatsapp/message';
 import { runMatchJob } from './services/job';
 import { formatMatchRunCsv, formatMatchRunSummary } from './services/formatter';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -98,7 +98,8 @@ async function runAndReport(notification?: {
 
         // Build the CSV in memory
         const csvContent = formatMatchRunCsv(result);
-        const csvFilePath = await saveCsvToTempFolder(csvContent, result.ranAt);
+        const csvRowsOnly = formatMatchRunCsv(result, { includeHeader: false });
+        const csvFilePath = await saveCsvToTempFolder(csvContent, csvRowsOnly, result.ranAt);
 
         console.log('[Matching Controller] Match results saved locally');
         console.log(`[Matching Controller] CSV saved to ${csvFilePath}`);
@@ -118,17 +119,29 @@ async function runAndReport(notification?: {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function saveCsvToTempFolder(csvContent: string, ranAt: Date): Promise<string> {
+async function saveCsvToTempFolder(csvContent: string, csvRowsOnly: string, ranAt: Date): Promise<string> {
     const tempFolder = resolve(process.cwd(), 'src', 'temp');
     await mkdir(tempFolder, { recursive: true });
 
     const filename = `match_${toDateFilename(ranAt)}.csv`;
     const filePath = resolve(tempFolder, filename);
 
-    await writeFile(filePath, csvContent, 'utf-8');
+    const hasContent = await stat(filePath)
+        .then(info => info.size > 0)
+        .catch(() => false);
+
+    if (!hasContent) {
+        await writeFile(filePath, csvContent, 'utf-8');
+        return filePath;
+    }
+
+    if (csvRowsOnly.length > 0) {
+        await appendFile(filePath, `\n${csvRowsOnly}`, 'utf-8');
+    }
+
     return filePath;
 }
 
 function toDateFilename(d: Date): string {
-    return d.toISOString().slice(0, 16).replace(/[T:]/g, '-');
+    return d.toISOString().slice(0, 10);
 }

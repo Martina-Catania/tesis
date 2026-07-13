@@ -46,6 +46,15 @@ describe('formatMatchRunCsv', () => {
         expect(lines[0]).toContain('Observaciones');
     });
 
+    it('can omit the header row for append-only writes', () => {
+        const outcome: MatchOutcome = { kind: 'success', candidate: makeCandidate() };
+        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }), { includeHeader: false });
+        const lines = csv.split('\n').filter(l => l.length > 0);
+
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).not.toContain('Cliente');
+    });
+
     it('produces only a header row when there are no outcomes', () => {
         const csv = formatMatchRunCsv(makeResult());
         const lines = csv.split('\n').filter(l => l.length > 0);
