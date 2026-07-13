@@ -9,6 +9,8 @@ export interface MeasurementDataWithCount {
     date: Date;
     clientId: number;
     totalPackages: number;
+    periodId?: number | null;
+    volumeM3?: number;
 }
 
 /**
@@ -32,6 +34,8 @@ export interface RemitoRow {
     date: Date;
     clientId: number | null;
     clientName: string | null;
+    address?: string | null;
+    zone?: string | null;
     packages: number | null;
 }
 
@@ -42,6 +46,7 @@ export interface RemitoErrorRow {
     id: number;
     date: Date;
     clientName: string | null;
+    address?: string | null;
     packages: number | null;
     errors: string[];
 }
@@ -55,6 +60,8 @@ export interface RemitoErrorRow {
 export interface MatchCandidate {
     clientId: number;
     deliveryDate: Date; // midnight UTC of the calendar day
+
+    tariff?: number | null;
 
     measurement: MeasurementDataWithCount | null;
     measurementError: MeasurementDataErrorRow | null;

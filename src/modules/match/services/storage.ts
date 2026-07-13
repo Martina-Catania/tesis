@@ -54,13 +54,21 @@ export async function setLastRunAt(prisma: PrismaClient, ranAt: Date): Promise<v
 export async function fetchUnmatchedMeasurements(
     prisma: PrismaClient,
 ): Promise<MeasurementDataWithCount[]> {
+    const usedIds = await prisma.deliveryError
+        .findMany({
+            where:  { measurementDataId: { not: null } },
+            select: { measurementDataId: true },
+        })
+        .then(rows => rows.map(r => r.measurementDataId as number));
+
     const rows = await prisma.measurementData.findMany({
         where: {
             match: null,         // no DeliveryMatch yet
             clientId: { not: 0 }, // always has a clientId
+            ...(usedIds.length > 0 ? { NOT: { id: { in: usedIds } } } : {}),
         },
         include: {
-            packages: { select: { quantity: true } },
+            packages: { select: { quantity: true, volume: true } },
         },
     });
 
@@ -68,7 +76,9 @@ export async function fetchUnmatchedMeasurements(
         id:            r.id,
         date:          r.date,
         clientId:      r.clientId,
+        periodId:      r.periodId,
         totalPackages: r.packages.reduce((sum, p) => sum + p.quantity, 0),
+        volumeM3:      r.packages.reduce((sum, p) => sum + (p.volume * p.quantity), 0) / 1_000_000,
     }));
 }
 
@@ -101,6 +111,7 @@ export async function fetchUnmatchedMeasurementErrors(
         date:       r.date,
         clientId:   r.clientId,
         clientName: r.clientName,
+        address:    r.address,
         packages:   parseJsonPackages(r.packages),
         errors:     parseJsonErrors(r.errors),
     }));
@@ -113,10 +124,23 @@ export async function fetchUnmatchedMeasurementErrors(
 export async function fetchUnmatchedRemitos(
     prisma: PrismaClient,
 ): Promise<RemitoRow[]> {
+    const usedIds = await prisma.deliveryError
+        .findMany({
+            where:  { remitoId: { not: null } },
+            select: { remitoId: true },
+        })
+        .then(rows => rows.map(r => r.remitoId as number));
+
     const rows = await prisma.remito.findMany({
         where: {
             match:    null,         // no DeliveryMatch yet
             clientId: { not: null }, // must have a resolved clientId to be matchable
+            ...(usedIds.length > 0 ? { NOT: { id: { in: usedIds } } } : {}),
+        },
+        include: {
+            resolvedAddress: {
+                select: { address: true, zone: true },
+            },
         },
     });
 
@@ -125,6 +149,8 @@ export async function fetchUnmatchedRemitos(
         date:       r.date,
         clientId:   r.clientId,
         clientName: r.clientName,
+        address:    r.address,
+        zone:       r.resolvedAddress?.zone ?? null,
         packages:   r.packages,
     }));
 }
@@ -157,6 +183,7 @@ export async function fetchUnmatchedRemitoErrors(
         id:         r.id,
         date:       r.date,
         clientName: r.clientName,
+        address:    r.address,
         packages:   r.packages,
         errors:     parseJsonErrors(r.errors),
     }));
@@ -179,32 +206,33 @@ export function groupIntoCandidates(
     remitos:            RemitoRow[],
     remitoErrors:       RemitoErrorRow[],
     resolveClientId:    (name: string) => number | undefined,
+    resolveTariff:      (input: { periodId: number | null | undefined; zone: string | null | undefined; volumeM3: number | null | undefined }) => number | null | undefined = () => undefined,
 ): { candidates: MatchCandidate[]; skippedCount: number } {
 
     // ── Index measurement-side records by "clientId|date" ────────────────────
-    const measMap  = new Map<string, MeasurementDataWithCount>();
-    const meErrMap = new Map<string, MeasurementDataErrorRow>();
+    const measMap  = new Map<string, MeasurementDataWithCount[]>();
+    const meErrMap = new Map<string, MeasurementDataErrorRow[]>();
 
     for (const m of measurements) {
-        measMap.set(candidateKey(m.clientId, m.date), m);
+        append(measMap, candidateKey(m.clientId, m.date), m);
     }
     for (const me of measurementErrors) {
         if (me.clientId === null) continue;
-        meErrMap.set(candidateKey(me.clientId, me.date), me);
+        append(meErrMap, candidateKey(me.clientId, me.date), me);
     }
 
     // ── Index remito-side records by "clientId|date" ─────────────────────────
-    const remMap   = new Map<string, RomitoRow>();
-    const reErrMap = new Map<string, RemitoErrorRow>();
+    const remMap   = new Map<string, RemitoRow[]>();
+    const reErrMap = new Map<string, RemitoErrorRow[]>();
 
     for (const r of remitos) {
         if (r.clientId === null) continue;
-        remMap.set(candidateKey(r.clientId, r.date), r);
+        append(remMap, candidateKey(r.clientId, r.date), r);
     }
     for (const re of remitoErrors) {
         const cid = re.clientName ? resolveClientId(re.clientName) : undefined;
         if (cid === undefined) continue;
-        reErrMap.set(candidateKey(cid, re.date), re);
+        append(reErrMap, candidateKey(cid, re.date), re);
     }
 
     // ── Collect all keys where BOTH sides are present ────────────────────────
@@ -217,21 +245,44 @@ export function groupIntoCandidates(
     let skippedCount = 0;
 
     for (const key of allKeys) {
-        const measurement      = measMap.get(key)  ?? null;
-        const measurementError = meErrMap.get(key) ?? null;
-        const remito           = remMap.get(key)   ?? null;
-        const remitoError      = reErrMap.get(key) ?? null;
+        const measurementsForKey      = measMap.get(key)  ?? [];
+        const measurementErrorsForKey = meErrMap.get(key) ?? [];
+        const remitosForKey           = remMap.get(key)   ?? [];
+        const remitoErrorsForKey      = reErrMap.get(key) ?? [];
+
+        const measurement      = last(measurementsForKey);
+        const measurementError = last(measurementErrorsForKey);
+        const remito           = last(remitosForKey);
+        const remitoError      = last(remitoErrorsForKey);
 
         // Only proceed if the remito side is also present
         if (remito === null && remitoError === null) {
-            skippedCount++;
+            skippedCount += measurementsForKey.length + measurementErrorsForKey.length;
             continue;
         }
 
+        if (measurement === null && measurementError === null) {
+            skippedCount += remitosForKey.length + remitoErrorsForKey.length;
+            continue;
+        }
+
+        skippedCount += Math.max(0, measurementsForKey.length - (measurement ? 1 : 0));
+        skippedCount += Math.max(0, measurementErrorsForKey.length - (measurementError ? 1 : 0));
+        skippedCount += Math.max(0, remitosForKey.length - (remito ? 1 : 0));
+        skippedCount += Math.max(0, remitoErrorsForKey.length - (remitoError ? 1 : 0));
+
         const [clientIdStr, dateStr] = key.split('|');
+        const volumeM3 = measurement?.volumeM3 ?? null;
+        const tariff = resolveTariff({
+            periodId: measurement?.periodId ?? null,
+            zone: remito?.zone ?? null,
+            volumeM3,
+        }) ?? null;
+
         candidates.push({
             clientId:     parseInt(clientIdStr, 10),
             deliveryDate: new Date(dateStr + 'T00:00:00.000Z'),
+            tariff,
             measurement,
             measurementError,
             remito,
@@ -251,6 +302,16 @@ export function groupIntoCandidates(
     }
 
     return { candidates, skippedCount };
+}
+
+function append<T>(map: Map<string, T[]>, key: string, value: T): void {
+    const values = map.get(key) ?? [];
+    values.push(value);
+    map.set(key, values);
+}
+
+function last<T>(values: T[]): T | null {
+    return values.length > 0 ? values[values.length - 1] : null;
 }
 
 // ─── Persist outcomes ─────────────────────────────────────────────────────────

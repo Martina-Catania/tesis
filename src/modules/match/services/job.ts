@@ -41,6 +41,52 @@ async function buildClientResolver(
     return (name: string) => map.get(normalise(name));
 }
 
+type TariffRateRow = {
+    periodId: number;
+    zone: string;
+    volumeMinM3: number;
+    volumeMaxM3: number | null;
+    perM3: boolean;
+    price: number;
+};
+
+function buildTariffResolver(rates: TariffRateRow[]): (input: { periodId: number | null | undefined; zone: string | null | undefined; volumeM3: number | null | undefined }) => number | null | undefined {
+    const byPeriodAndZone = new Map<string, TariffRateRow[]>();
+
+    for (const rate of rates) {
+        const key = `${rate.periodId}|${rate.zone}`;
+        const current = byPeriodAndZone.get(key) ?? [];
+        current.push(rate);
+        byPeriodAndZone.set(key, current);
+    }
+
+    for (const entries of byPeriodAndZone.values()) {
+        entries.sort((a, b) => a.volumeMinM3 - b.volumeMinM3);
+    }
+
+    return ({ periodId, zone, volumeM3 }) => {
+        if (periodId === null || periodId === undefined || zone === null || zone === undefined || volumeM3 === null || volumeM3 === undefined) {
+            return undefined;
+        }
+
+        const entries = byPeriodAndZone.get(`${periodId}|${zone}`);
+        if (!entries || entries.length === 0) {
+            return undefined;
+        }
+
+        const match = entries.find(rate =>
+            volumeM3 >= rate.volumeMinM3 &&
+            (rate.volumeMaxM3 === null || volumeM3 <= rate.volumeMaxM3),
+        );
+
+        if (!match) {
+            return undefined;
+        }
+
+        return match.perM3 ? match.price * volumeM3 : match.price;
+    };
+}
+
 function normalise(s: string): string {
     return s
         .normalize('NFD')
@@ -92,6 +138,27 @@ export async function runMatchJob(prisma: PrismaClient): Promise<MatchRunResult>
     // ── 2. Build client resolver and group into candidates ────────────────────
 
     const resolveClientId = await buildClientResolver(prisma);
+    const periodIds = Array.from(new Set(
+        measurements
+            .map(m => m.periodId)
+            .filter((periodId): periodId is number => periodId !== null && periodId !== undefined),
+    ));
+
+    const tariffRates = periodIds.length > 0
+        ? await prisma.tariffRate.findMany({
+            where: { periodId: { in: periodIds } },
+            select: {
+                periodId: true,
+                zone: true,
+                volumeMinM3: true,
+                volumeMaxM3: true,
+                perM3: true,
+                price: true,
+            },
+        })
+        : [];
+
+    const resolveTariff = buildTariffResolver(tariffRates);
 
     const { candidates, skippedCount } = groupIntoCandidates(
         measurements,
@@ -99,6 +166,7 @@ export async function runMatchJob(prisma: PrismaClient): Promise<MatchRunResult>
         remitos,
         remitoErrors,
         resolveClientId,
+        resolveTariff,
     );
 
     console.log(

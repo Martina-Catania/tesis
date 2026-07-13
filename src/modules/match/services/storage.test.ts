@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import {
     getLastRunAt,
     setLastRunAt,
+    fetchUnmatchedMeasurements,
+    fetchUnmatchedRemitos,
     groupIntoCandidates,
     saveDeliveryMatch,
     saveDeliveryError,
@@ -86,6 +88,54 @@ describe('setLastRunAt', () => {
             where:  { id: 1 },
             update: { lastRunAt: ts },
             create: { id: 1, lastRunAt: ts },
+        });
+    });
+});
+
+// ─── fetchUnmatchedMeasurements / fetchUnmatchedRemitos ─────────────────────
+
+describe('fetchUnmatchedMeasurements', () => {
+    it('excludes measurements already stored in DeliveryError', async () => {
+        prismaMock.deliveryError.findMany.mockResolvedValue([
+            { measurementDataId: 11 },
+        ] as any);
+        prismaMock.measurementData.findMany.mockResolvedValue([] as any);
+
+        await fetchUnmatchedMeasurements(prismaMock);
+
+        expect(prismaMock.measurementData.findMany).toHaveBeenCalledWith({
+            where: {
+                match: null,
+                clientId: { not: 0 },
+                NOT: { id: { in: [11] } },
+            },
+            include: {
+                packages: { select: { quantity: true, volume: true } },
+            },
+        });
+    });
+});
+
+describe('fetchUnmatchedRemitos', () => {
+    it('excludes remitos already stored in DeliveryError', async () => {
+        prismaMock.deliveryError.findMany.mockResolvedValue([
+            { remitoId: 21 },
+        ] as any);
+        prismaMock.remito.findMany.mockResolvedValue([] as any);
+
+        await fetchUnmatchedRemitos(prismaMock);
+
+        expect(prismaMock.remito.findMany).toHaveBeenCalledWith({
+            where: {
+                match: null,
+                clientId: { not: null },
+                NOT: { id: { in: [21] } },
+            },
+            include: {
+                resolvedAddress: {
+                    select: { address: true, zone: true },
+                },
+            },
         });
     });
 });
@@ -197,6 +247,20 @@ describe('groupIntoCandidates', () => {
         expect(candidates).toHaveLength(2);
         const clientIds = candidates.map(c => c.clientId).sort();
         expect(clientIds).toEqual([CLIENT_1, CLIENT_2]);
+    });
+
+    it('counts extra measurements for the same client+day as skipped', () => {
+        const { candidates, skippedCount } = groupIntoCandidates(
+            [meas(1, CLIENT_1, DATE_A, 4), meas(2, CLIENT_1, DATE_A, 6)],
+            [],
+            [rem(100, CLIENT_1, DATE_A)],
+            [],
+            noOp,
+        );
+
+        expect(candidates).toHaveLength(1);
+        expect(candidates[0].measurement?.id).toBe(2);
+        expect(skippedCount).toBe(1);
     });
 
     // ── Skipped (only one side present) ───────────────────────────────────────

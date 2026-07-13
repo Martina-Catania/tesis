@@ -3,16 +3,13 @@ import { MatchRunResult, MatchOutcome } from '../types';
 // ─── CSV column definitions ───────────────────────────────────────────────────
 
 const HEADERS = [
-    'Fecha entrega',
-    'Cliente ID',
-    'Resultado',
-    'Bultos medidos',
-    'Bultos remito',
-    'ID MeasurementData',
-    'ID MeasurementDataError',
-    'ID Remito',
-    'ID RemitoError',
-    'Errores',
+    'Cliente',
+    'Dirección',
+    'Zona',
+    'Bultos',
+    'Vol (m3)',
+    'Tarifa',
+    'Observaciones',
 ] as const;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -67,40 +64,57 @@ function outcomeToRow(outcome: MatchOutcome): string[] {
     const { candidate } = outcome;
     const { measurement, measurementError, remito, remitoError } = candidate;
 
-    const dateStr = candidate.deliveryDate.toLocaleDateString('es-AR', {
-        day:   '2-digit',
-        month: '2-digit',
-        year:  'numeric',
-    });
+    const client =
+        remito?.clientName ??
+        remitoError?.clientName ??
+        measurementError?.clientName ??
+        String(candidate.clientId);
 
-    const result = outcome.kind === 'success' ? 'OK' : 'ERROR';
+    const address =
+        remito?.address ??
+        remitoError?.address ??
+        '';
 
-    const measuredPackages =
+    const zone = remito?.zone ?? '';
+
+    const bultos =
         measurement?.totalPackages ??
+        remito?.packages ??
+        remitoError?.packages ??
         (measurementError?.packages
-            ? measurementError.packages.reduce((s, p) => s + p.quantity, 0)
+            ? measurementError.packages.reduce((sum, pkg) => sum + pkg.quantity, 0)
             : '');
 
-    const remitoPackages =
-        remito?.packages ?? remitoError?.packages ?? '';
+    const volumeM3 = measurement?.volumeM3 ?? '';
 
-    const errors =
+    const tarifa = candidate.tariff ?? '';
+
+    const observations =
         outcome.kind === 'error'
             ? outcome.errors.join(' | ')
             : '';
 
     return [
-        dateStr,
-        String(candidate.clientId),
-        result,
-        String(measuredPackages),
-        String(remitoPackages),
-        String(measurement?.id      ?? ''),
-        String(measurementError?.id ?? ''),
-        String(remito?.id           ?? ''),
-        String(remitoError?.id      ?? ''),
-        errors,
+        client,
+        address,
+        zone,
+        String(bultos),
+        formatDecimal(volumeM3),
+        formatDecimal(tarifa),
+        observations,
     ];
+}
+
+function formatDecimal(value: number | string): string {
+    if (typeof value === 'string') {
+        return value;
+    }
+
+    if (!Number.isFinite(value)) {
+        return '';
+    }
+
+    return value.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*?[1-9])0+$/, '$1');
 }
 
 /** Wraps a cell value in quotes and escapes any internal quotes. */

@@ -37,12 +37,13 @@ describe('formatMatchRunCsv', () => {
         const csv = formatMatchRunCsv(makeResult());
         const lines = csv.split('\n');
 
-        expect(lines[0]).toContain('Fecha entrega');
-        expect(lines[0]).toContain('Cliente ID');
-        expect(lines[0]).toContain('Resultado');
-        expect(lines[0]).toContain('Bultos medidos');
-        expect(lines[0]).toContain('Bultos remito');
-        expect(lines[0]).toContain('Errores');
+        expect(lines[0]).toContain('Cliente');
+        expect(lines[0]).toContain('Dirección');
+        expect(lines[0]).toContain('Zona');
+        expect(lines[0]).toContain('Bultos');
+        expect(lines[0]).toContain('Vol (m3)');
+        expect(lines[0]).toContain('Tarifa');
+        expect(lines[0]).toContain('Observaciones');
     });
 
     it('produces only a header row when there are no outcomes', () => {
@@ -58,56 +59,52 @@ describe('formatMatchRunCsv', () => {
         expect(lines).toHaveLength(2);
     });
 
-    it('marks successful outcomes as OK', () => {
+    it('includes the client name in each data row', () => {
         const outcome: MatchOutcome = { kind: 'success', candidate: makeCandidate() };
         const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        expect(csv).toContain('OK');
+        expect(csv).toContain('ACME');
     });
 
-    it('marks error outcomes as ERROR', () => {
+    it('includes the remito address and zone when present', () => {
+        const outcome: MatchOutcome = {
+            kind: 'success',
+            candidate: makeCandidate({
+                remito: { id: 100, date: DELIVERY_DATE, clientId: CLIENT_ID, clientName: 'ACME', address: 'Av. Corrientes 1234', zone: 'CABA', packages: 5 },
+            }),
+        };
+        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
+        expect(csv).toContain('Av. Corrientes 1234');
+        expect(csv).toContain('CABA');
+    });
+
+    it('formats bultos, volume, and tariff columns', () => {
+        const outcome: MatchOutcome = {
+            kind: 'success',
+            candidate: makeCandidate({
+                measurement: { id: 1, date: DELIVERY_DATE, clientId: CLIENT_ID, totalPackages: 10, volumeM3: 1.25 },
+                tariff: 3200.5,
+            }),
+        };
+        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
+        expect(csv).toContain('10');
+        expect(csv).toContain('1.25');
+        expect(csv).toContain('3200.5');
+    });
+
+    it('puts error messages in the observaciones column', () => {
         const outcome: MatchOutcome = {
             kind:      'error',
             candidate: makeCandidate(),
             errors:    ['Discrepancia'],
         };
         const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        expect(csv).toContain('ERROR');
+        expect(csv).toContain('Discrepancia');
     });
 
-    it('includes the clientId in each data row', () => {
-        const outcome: MatchOutcome = { kind: 'success', candidate: makeCandidate({ clientId: 42 }) };
-        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        expect(csv).toContain('42');
-    });
-
-    it('includes measured and remito package counts', () => {
-        const outcome: MatchOutcome = {
-            kind:      'success',
-            candidate: makeCandidate({
-                measurement: { id: 1, date: DELIVERY_DATE, clientId: CLIENT_ID, totalPackages: 10 },
-                remito:      { id: 100, date: DELIVERY_DATE, clientId: CLIENT_ID, clientName: 'ACME', packages: 10 },
-            }),
-        };
-        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        const dataRow = csv.split('\n')[1];
-        expect(dataRow).toContain('10');
-    });
-
-    it('includes error messages joined by " | " in the errors column', () => {
-        const outcome: MatchOutcome = {
-            kind:      'error',
-            candidate: makeCandidate(),
-            errors:    ['Error A', 'Error B'],
-        };
-        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        expect(csv).toContain('Error A | Error B');
-    });
-
-    it('leaves the errors column empty for successful outcomes', () => {
+    it('leaves observaciones empty for successful outcomes', () => {
         const outcome: MatchOutcome = { kind: 'success', candidate: makeCandidate() };
         const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
         const dataRow = csv.split('\n')[1];
-        // Last column should be empty (trailing comma or nothing after last comma)
         expect(dataRow.endsWith(',')).toBe(true);
     });
 
@@ -120,32 +117,6 @@ describe('formatMatchRunCsv', () => {
         const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
         // The comma-containing value should be wrapped in quotes
         expect(csv).toContain('"se midieron 3, declararon 7"');
-    });
-
-    it('includes the MeasurementData ID when present', () => {
-        const outcome: MatchOutcome = {
-            kind:      'success',
-            candidate: makeCandidate({ measurement: { id: 99, date: DELIVERY_DATE, clientId: CLIENT_ID, totalPackages: 5 } }),
-        };
-        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        expect(csv).toContain('99');
-    });
-
-    it('leaves measurement ID column empty when measurement side is an error record', () => {
-        const outcome: MatchOutcome = {
-            kind:      'error',
-            candidate: makeCandidate({
-                measurement:      null,
-                measurementError: { id: 10, date: DELIVERY_DATE, clientId: CLIENT_ID, clientName: 'ACME', packages: null, errors: [] },
-            }),
-            errors: [],
-        };
-        const csv = formatMatchRunCsv(makeResult({ outcomes: [outcome] }));
-        const dataRow = csv.split('\n')[1];
-        const cols = dataRow.split(',');
-        // ID MeasurementData column (index 5) should be empty, ID MeasurementDataError (index 6) should be '10'
-        expect(cols[5]).toBe('');
-        expect(cols[6]).toBe('10');
     });
 });
 
