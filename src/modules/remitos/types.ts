@@ -93,19 +93,18 @@ export interface RemitoErrorInput {
 export type AddressZone = 'CABA' | 'AMBA_1' | 'AMBA_2' | 'AMBA_3';
 
 /**
- * The step we are waiting on from the driver for a pending address confirmation.
+ * The step we are waiting on from the driver in the remito interactive flow:
  *
- * - 'confirm_address': awaiting a yes/no on whether the unknown address is valid
- * - 'select_zone':     awaiting zone selection after the driver confirmed the address
+ * - 'confirm_data':    driver reviews parsed fields (client, address, packages)
+ *                      and confirms or rejects before anything is saved
+ * - 'confirm_address': awaiting yes/no on whether an unknown address is valid
+ * - 'select_zone':     awaiting zone selection after the driver accepted the address
  */
-export type PendingAddressStep = 'confirm_address' | 'select_zone';
+export type PendingAddressStep = 'confirm_data' | 'confirm_address' | 'select_zone';
 
 /**
- * State stored in the Cache while waiting for a driver's interactive reply
- * about an unrecognised address found on a remito.
- *
- * Keyed by the outgoing message ID that carried the interactive question
- * (available via Cache.set / Cache.get with that message ID).
+ * State stored in the Cache while waiting for a driver's interactive reply.
+ * Keyed by the outgoing message ID that carried the interactive question.
  */
 export interface PendingAddressConfirmation {
     step: PendingAddressStep;
@@ -118,8 +117,31 @@ export interface PendingAddressConfirmation {
     date: Date;
     rawText: string;
     clientName?: string;
-    address: string;       // guaranteed non-empty — we only reach this state when address was extracted
+    address?: string;
     packages?: number;
-    clientId: number;      // guaranteed — we only reach this state when client was resolved
-    errors: string[];      // non-address errors already present at time of discovery
+    clientId?: number;
+    errors: string[];
+}
+
+// ─── Bultos Pending State ─────────────────────────────────────────────────────
+
+/**
+ * State stored in Cache while waiting for the driver to confirm a parsed
+ * bultos delivery message before it is saved.
+ */
+export interface PendingBultosConfirmation {
+    phoneNumberId: string;
+    driverPhoneNumber: string;
+    rawMessage: string;
+    date: Date;
+
+    // Each delivery in the message, serialised for storage
+    deliveries: Array<{
+        client: string;
+        packages: Package[];
+        errors: string[];
+        // resolved client id — undefined if client was not found in DB
+        clientId?: number;
+        periodId?: number;
+    }>;
 }

@@ -2,7 +2,7 @@ import { GraphApi } from './graph-api';
 import { Message, RawMessage } from './message';
 import { Status, RawStatus } from './status';
 import { Cache } from '../../shared/utils';
-import { handleMeasurementMessage } from '../bultos/controllers';
+import { handleMeasurementMessage, handleBultosInteractiveReply } from '../bultos/controllers';
 import { handleRemitoMessage, handleRemitoInteractiveReply } from '../remitos/controllers';
 import { handleMatchTrigger } from '../match/controllers';
 import { handleAdminCommand, handleAdminInteractiveReply } from '../admin/controllers';
@@ -16,15 +16,12 @@ export class Conversation {
 
 		switch (message.type) {
 			case 'text': {
-				// Admin commands take priority (they start with a known keyword prefix)
 				const handledByAdmin = await handleAdminCommand(senderPhoneNumberId, message);
 				if (handledByAdmin) break;
 
-				// "match" trigger
 				const handledByMatch = await handleMatchTrigger(senderPhoneNumberId, message);
 				if (handledByMatch) break;
 
-				// Default: delivery measurement
 				await handleMeasurementMessage(senderPhoneNumberId, message);
 				break;
 			}
@@ -35,9 +32,14 @@ export class Conversation {
 			}
 
 			case 'interactive': {
-				// Try admin reply first, then remito reply
+				// Each handler checks its own cache namespace and returns false if
+				// the reply doesn't belong to it — order doesn't matter functionally
+				// but admin > bultos > remito is a reasonable priority.
 				const handledByAdmin = await handleAdminInteractiveReply(senderPhoneNumberId, message);
 				if (handledByAdmin) break;
+
+				const handledByBultos = await handleBultosInteractiveReply(senderPhoneNumberId, message);
+				if (handledByBultos) break;
 
 				const handledByRemito = await handleRemitoInteractiveReply(senderPhoneNumberId, message);
 				if (!handledByRemito) {

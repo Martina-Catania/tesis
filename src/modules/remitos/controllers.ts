@@ -12,11 +12,6 @@ import { PendingAddressConfirmation, AddressZone } from './types';
 
 // ─── Cache key helpers ────────────────────────────────────────────────────────
 
-/**
- * The Cache is keyed by the outgoing message ID of the interactive question
- * we sent to the driver. When the driver taps a button, the incoming
- * interactive message carries a `context.id` pointing back to that message.
- */
 function pendingCacheKey(outgoingMessageId: string): string {
     return `remito:pending:${outgoingMessageId}`;
 }
@@ -24,16 +19,23 @@ function pendingCacheKey(outgoingMessageId: string): string {
 // ─── Interactive reply button / list IDs ─────────────────────────────────────
 
 const REPLY_ID = {
-    ADDRESS_VALID:   'remito_addr_valid',
+    // Data confirmation (new — shown first for every remito)
+    DATA_OK: 'remito_data_ok',
+    DATA_WRONG: 'remito_data_wrong',
+
+    // Address confirmation (shown when address is unknown)
+    ADDRESS_VALID: 'remito_addr_valid',
     ADDRESS_INVALID: 'remito_addr_invalid',
-    ZONE_CABA:       'remito_zone_caba',
-    ZONE_AMBA_1:     'remito_zone_amba1',
-    ZONE_AMBA_2:     'remito_zone_amba2',
-    ZONE_AMBA_3:     'remito_zone_amba3',
+
+    // Zone selection
+    ZONE_CABA: 'remito_zone_caba',
+    ZONE_AMBA_1: 'remito_zone_amba1',
+    ZONE_AMBA_2: 'remito_zone_amba2',
+    ZONE_AMBA_3: 'remito_zone_amba3',
 } as const;
 
 const ZONE_FROM_REPLY_ID: Record<string, AddressZone> = {
-    [REPLY_ID.ZONE_CABA]:   'CABA',
+    [REPLY_ID.ZONE_CABA]: 'CABA',
     [REPLY_ID.ZONE_AMBA_1]: 'AMBA_1',
     [REPLY_ID.ZONE_AMBA_2]: 'AMBA_2',
     [REPLY_ID.ZONE_AMBA_3]: 'AMBA_3',
@@ -80,150 +82,71 @@ export async function handleRemitoMessage(
                 );
                 return;
             }
-            throw error; // unexpected error — let it propagate
+            throw error;
         }
         console.log(`[Remitos Controller] Gemini raw response: "${rawText}"`);
 
         // 3. Parse Gemini's response into structured data
         const parsed = parseRemitoText(rawText);
 
-        // 4. Validate the extracted client against the DB.
+        // 4. Validate the extracted client against the DB
         let resolvedClientId: number | undefined;
 
-        if (parsed.data.clientName && !hasErrors(parsed)) {
+        if (parsed.data.clientName) {
             const client = await findClient(prisma, parsed.data.clientName);
             if (client) {
                 resolvedClientId = client.id;
             } else {
-                parsed.errors.push(
-                    `Cliente desconocido: "${parsed.data.clientName}"`,
-                );
+                parsed.errors.push(`Cliente desconocido: "${parsed.data.clientName}"`);
             }
         }
 
-        // 5. If client resolved and address extracted, check address against DB.
-        //    When the address is unknown, pause and ask the driver before saving.
-        if (resolvedClientId !== undefined && parsed.data.address) {
-            const addressMatch = await findMatchingAddress(
-                prisma,
-                resolvedClientId,
-                parsed.data.address,
-            );
+        // 5. Ask the driver to confirm the extracted data before saving anything.
+        //    We do this regardless of whether there are parse errors — the driver
+        //    may spot that the image was wrong and prefer to discard it entirely.
+        const reviewText = buildDataReviewMessage(parsed.data.clientName, parsed.data.address, parsed.data.packages, parsed.errors);
 
-            if (addressMatch.matched) {
-                // Known address — save remito directly (happy path)
-                await saveRemito(prisma, {
-                    date,
-                    rawText,
-                    clientName: parsed.data.clientName,
-                    address:    parsed.data.address,
-                    packages:   parsed.data.packages,
-                    clientId:   resolvedClientId,
-                    addressId:  addressMatch.addressId,
-                });
-
-                console.log(
-                    `[Remitos Controller] Remito handled successfully for: ${message.senderPhoneNumber}`,
-                );
-
-                await GraphApi.sendTextMessage(
-                    message.id,
-                    phoneNumberId,
-                    message.senderPhoneNumber,
-                    formatRemitoReply(parsed),
-                );
-                return;
-            }
-
-            // Unknown address — ask the driver whether it is a valid new address
-            console.log(
-                `[Remitos Controller] Unknown address for clientId ${resolvedClientId}: "${parsed.data.address}". ` +
-                `Asking driver for confirmation.`,
-            );
-
-            const outgoingMessage = await GraphApi.messageWithInteractiveReply(
-                message.id,
-                phoneNumberId,
-                message.senderPhoneNumber,
-                `⚠️ Dirección desconocida para *${parsed.data.clientName}*:\n\n` +
-                `_"${parsed.data.address}"_\n\n` +
-                `Agregar dirección?`,
-                [
-                    { id: REPLY_ID.ADDRESS_VALID,   title: '✅ Sí, guardar' },
-                    { id: REPLY_ID.ADDRESS_INVALID, title: '❌ No, es un error' },
-                ],
-            ) as { messages?: Array<{ id: string }> };
-
-            // Persist the remito state in Cache so the next interactive message
-            // can pick it up. Key = outgoing message ID (WhatsApp context.id).
-            const outgoingMessageId = outgoingMessage?.messages?.[0]?.id;
-            if (outgoingMessageId) {
-                const pending: PendingAddressConfirmation = {
-                    step: 'confirm_address',
-                    phoneNumberId,
-                    driverPhoneNumber: message.senderPhoneNumber,
-                    date,
-                    rawText,
-                    clientName: parsed.data.clientName,
-                    address:    parsed.data.address,
-                    packages:   parsed.data.packages,
-                    clientId:   resolvedClientId,
-                    errors:     parsed.errors,
-                };
-                await Cache.set(pendingCacheKey(outgoingMessageId), JSON.stringify(pending));
-                console.log(
-                    `[Remitos Controller] Pending state cached under key: ${pendingCacheKey(outgoingMessageId)}`,
-                );
-            } else {
-                // Could not get outgoing message ID — fall back to saving as error
-                console.warn(
-                    '[Remitos Controller] Could not retrieve outgoing message ID from API response; ' +
-                    'saving as error instead of awaiting confirmation.',
-                );
-                await saveRemitoError(prisma, {
-                    date,
-                    rawText,
-                    clientName: parsed.data.clientName,
-                    address:    parsed.data.address,
-                    packages:   parsed.data.packages,
-                    errors: [...parsed.errors, `Dirección desconocida para este cliente: "${parsed.data.address}"`],
-                });
-            }
-            return; // reply was sent above — we are now waiting for the driver
-        }
-
-        // 6. No address lookup needed (either client or address was missing/errored).
-        //    Persist according to whether there are errors.
-        if (hasErrors(parsed)) {
-            await saveRemitoError(prisma, {
-                date,
-                rawText,
-                clientName: parsed.data.clientName,
-                address:    parsed.data.address,
-                packages:   parsed.data.packages,
-                errors:     parsed.errors,
-            });
-        } else {
-            await saveRemito(prisma, {
-                date,
-                rawText,
-                clientName: parsed.data.clientName,
-                address:    parsed.data.address,
-                packages:   parsed.data.packages,
-                clientId:   resolvedClientId,
-            });
-        }
-
-        console.log(
-            `[Remitos Controller] Remito handled successfully for: ${message.senderPhoneNumber}`,
-        );
-
-        await GraphApi.sendTextMessage(
+        const outgoingMessage = await GraphApi.messageWithInteractiveReply(
             message.id,
             phoneNumberId,
             message.senderPhoneNumber,
-            formatRemitoReply(parsed),
+            reviewText,
+            [
+                { id: REPLY_ID.DATA_OK, title: '✅ Correcto' },
+                { id: REPLY_ID.DATA_WRONG, title: '❌ Incorrecto' },
+            ],
+        ) as { messages?: Array<{ id: string }> };
+
+        const outgoingMessageId = outgoingMessage?.messages?.[0]?.id;
+
+        if (!outgoingMessageId) {
+            // Can't cache without the message ID — fall back to saving immediately
+            console.warn(
+                '[Remitos Controller] Could not retrieve outgoing message ID for data review; ' +
+                'saving without driver confirmation.',
+            );
+            await saveWithoutConfirmation(date, rawText, parsed, resolvedClientId, phoneNumberId, message);
+            return;
+        }
+
+        const pending: PendingAddressConfirmation = {
+            step: 'confirm_data',
+            phoneNumberId,
+            driverPhoneNumber: message.senderPhoneNumber,
+            date,
+            rawText,
+            clientName: parsed.data.clientName,
+            address: parsed.data.address,
+            packages: parsed.data.packages,
+            clientId: resolvedClientId,
+            errors: parsed.errors,
+        };
+
+        await Cache.set(pendingCacheKey(outgoingMessageId), JSON.stringify(pending));
+        console.log(
+            `[Remitos Controller] Data review sent; pending state cached under key: ${pendingCacheKey(outgoingMessageId)}`,
         );
+
     } catch (error) {
         console.error(
             `[Remitos Controller] Error handling remito from: ${message.senderPhoneNumber}:`,
@@ -233,37 +156,22 @@ export async function handleRemitoMessage(
     }
 }
 
-// ─── Step 2 & 3 — Interactive reply handler ───────────────────────────────────
+// ─── Step 2, 3 & 4 — Interactive reply handler ────────────────────────────────
 
-/**
- * Handles interactive button/list replies from drivers responding to
- * address-confirmation or zone-selection prompts.
- *
- * Called from client.ts when message.type === 'interactive'.
- *
- * Returns true if the message was handled as part of an address confirmation
- * flow, false if it was an unrelated interactive reply.
- */
 export async function handleRemitoInteractiveReply(
     phoneNumberId: string,
     message: Message,
 ): Promise<boolean> {
-    // The context ID links this reply back to the question we sent
     const contextMessageId = message.contextMessageId;
-    if (!contextMessageId) {
-        return false;
-    }
+    if (!contextMessageId) return false;
 
     const cacheKey = pendingCacheKey(contextMessageId);
     const cached = await Cache.get(cacheKey);
-    if (!cached) {
-        return false; // not our pending state
-    }
+    if (!cached) return false;
 
     let pending: PendingAddressConfirmation;
     try {
         pending = JSON.parse(cached) as PendingAddressConfirmation;
-        // Dates are serialised as strings — restore them
         pending.date = new Date(pending.date);
     } catch {
         console.error('[Remitos Controller] Failed to parse cached pending state');
@@ -275,20 +183,59 @@ export async function handleRemitoInteractiveReply(
         `[Remitos Controller] Interactive reply received — step: ${pending.step}, replyId: "${replyId}"`,
     );
 
+    // ── confirm_data step (new first step) ────────────────────────────────────
+
+    if (pending.step === 'confirm_data') {
+        if (replyId === REPLY_ID.DATA_WRONG) {
+            await Cache.remove(cacheKey);
+
+            // Driver says the extracted data is wrong — save as error and stop
+            await saveRemitoError(prisma, {
+                date: pending.date,
+                rawText: pending.rawText,
+                clientName: pending.clientName,
+                address: pending.address,
+                packages: pending.packages,
+                errors: [...pending.errors, 'El chofer indicó que los datos extraídos son incorrectos.'],
+            });
+
+            await GraphApi.sendTextMessage(
+                message.id,
+                phoneNumberId,
+                pending.driverPhoneNumber,
+                '❌ *Remito descartado*\n\nReenviá la foto del remito para volver a intentarlo.',
+            );
+
+            console.log('[Remitos Controller] Remito discarded after driver rejected extracted data.');
+            return true;
+        }
+
+        if (replyId === REPLY_ID.DATA_OK) {
+            await Cache.remove(cacheKey);
+
+            // Driver confirmed the data is correct — now continue with the
+            // existing address-check logic, exactly as before.
+            await continueAfterDataConfirmation(phoneNumberId, message, pending);
+            return true;
+        }
+
+        console.warn(`[Remitos Controller] Unexpected replyId "${replyId}" for step confirm_data`);
+        return true; // we own this context, consume it
+    }
+
     // ── confirm_address step ──────────────────────────────────────────────────
 
     if (pending.step === 'confirm_address') {
         if (replyId === REPLY_ID.ADDRESS_INVALID) {
-            // Driver confirmed the address is wrong — save as error and finish
             await Cache.remove(cacheKey);
 
             await saveRemitoError(prisma, {
-                date:       pending.date,
-                rawText:    pending.rawText,
+                date: pending.date,
+                rawText: pending.rawText,
                 clientName: pending.clientName,
-                address:    pending.address,
-                packages:   pending.packages,
-                errors:     [
+                address: pending.address,
+                packages: pending.packages,
+                errors: [
                     ...pending.errors,
                     `Dirección inválida confirmada: "${pending.address}"`,
                 ],
@@ -306,8 +253,6 @@ export async function handleRemitoInteractiveReply(
         }
 
         if (replyId === REPLY_ID.ADDRESS_VALID) {
-            // Driver confirmed the address is new and valid — ask for zone
-            // Update the cached state to the next step before sending the list
             const updatedPending: PendingAddressConfirmation = { ...pending, step: 'select_zone' };
 
             const outgoingMessage = await GraphApi.messageWithInteractiveList(
@@ -320,7 +265,7 @@ export async function handleRemitoInteractiveReply(
                     {
                         title: 'Zona',
                         rows: [
-                            { id: REPLY_ID.ZONE_CABA,   title: 'CABA',   description: 'Ciudad Autónoma de Buenos Aires' },
+                            { id: REPLY_ID.ZONE_CABA, title: 'CABA', description: 'Ciudad Autónoma de Buenos Aires' },
                             { id: REPLY_ID.ZONE_AMBA_1, title: 'AMBA 1', description: 'Avellaneda, Lanus, Lomas de Zamora, La Matanza, Morón Hurlingham, Ituzaingó, Tres de Febrero, San Martín, Vicente Lopez, San Isidro' },
                             { id: REPLY_ID.ZONE_AMBA_2, title: 'AMBA 2', description: 'Quilmes, Berazategui, Florencio Varela, Almirante Brown, Esteban Echevarría, Ezeiza, Merlo, Moreno, San Miguel, José C Paz, Malvinas Argentinas, San Fernando, Tigre' },
                             { id: REPLY_ID.ZONE_AMBA_3, title: 'AMBA 3', description: 'La Plata, Ensenada, Berazategui, Presidente Peron, San Vicente, Cañuelas, Marcos Paz, General Rodriguez, Lujan, Pilar, Escobar, Campana, Exaltación de la Cruz, Zarate' },
@@ -329,7 +274,6 @@ export async function handleRemitoInteractiveReply(
                 ],
             ) as { messages?: Array<{ id: string }> };
 
-            // Remove old cache entry and store under the new outgoing message ID
             await Cache.remove(cacheKey);
 
             const newOutgoingMessageId = outgoingMessage?.messages?.[0]?.id;
@@ -343,24 +287,22 @@ export async function handleRemitoInteractiveReply(
                 );
             } else {
                 console.warn(
-                    '[Remitos Controller] Could not retrieve outgoing message ID for zone question; ' +
-                    'saving as error.',
+                    '[Remitos Controller] Could not retrieve outgoing message ID for zone question; saving as error.',
                 );
                 await saveRemitoError(prisma, {
-                    date:       pending.date,
-                    rawText:    pending.rawText,
+                    date: pending.date,
+                    rawText: pending.rawText,
                     clientName: pending.clientName,
-                    address:    pending.address,
-                    packages:   pending.packages,
-                    errors:     [...pending.errors, 'No se pudo completar la selección de zona.'],
+                    address: pending.address,
+                    packages: pending.packages,
+                    errors: [...pending.errors, 'No se pudo completar la selección de zona.'],
                 });
             }
             return true;
         }
 
-        // Unrecognised reply ID for this step — ignore
         console.warn(`[Remitos Controller] Unexpected replyId "${replyId}" for step confirm_address`);
-        return true; // we own this context, consume it
+        return true;
     }
 
     // ── select_zone step ──────────────────────────────────────────────────────
@@ -370,43 +312,39 @@ export async function handleRemitoInteractiveReply(
 
         if (!zone) {
             console.warn(`[Remitos Controller] Unexpected replyId "${replyId}" for step select_zone`);
-            return true; // consume but ignore
+            return true;
         }
 
         await Cache.remove(cacheKey);
 
-        // Create the new address in the DB
         const newAddress = await createAddress(
             prisma,
-            pending.clientId,
-            pending.address,
+            pending.clientId!,
+            pending.address!,
             zone,
         );
 
-        // Now save the remito linked to the new address
-        const remitoErrors = pending.errors; // errors unrelated to address
         const saved = await saveRemito(prisma, {
-            date:       pending.date,
-            rawText:    pending.rawText,
+            date: pending.date,
+            rawText: pending.rawText,
             clientName: pending.clientName,
-            address:    pending.address,
-            packages:   pending.packages,
-            clientId:   pending.clientId,
-            addressId:  newAddress.id,
+            address: pending.address,
+            packages: pending.packages,
+            clientId: pending.clientId,
+            addressId: newAddress.id,
         });
 
         console.log(
             `[Remitos Controller] New address id=${newAddress.id} created and remito id=${saved.id} saved.`,
         );
 
-        // Build a ParsedRemito-like object just for the reply formatter
         const parsedForReply = {
             data: {
                 clientName: pending.clientName,
-                address:    pending.address,
-                packages:   pending.packages,
+                address: pending.address,
+                packages: pending.packages,
             },
-            errors: remitoErrors,
+            errors: pending.errors,
         };
 
         await GraphApi.sendTextMessage(
@@ -421,4 +359,223 @@ export async function handleRemitoInteractiveReply(
     }
 
     return false;
+}
+
+// ─── Private helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Builds the data-review message shown to the driver after Gemini extraction.
+ * Displays whatever was extracted (including any parse errors) and asks for
+ * a binary confirm/reject.
+ */
+function buildDataReviewMessage(
+    clientName?: string,
+    address?: string,
+    packages?: number,
+    errors: string[] = [],
+): string {
+    const lines: string[] = ['📋 *Revisá los datos del remito:*', ''];
+
+    lines.push(`*Cliente:* ${clientName ?? '—'}`);
+    lines.push(`*Dirección:* ${address ?? '—'}`);
+    lines.push(`*Bultos:* ${packages !== undefined ? packages : '—'}`);
+
+    if (errors.length > 0) {
+        lines.push('');
+        lines.push('⚠️ _Campos con problemas:_');
+        for (const e of errors) {
+            lines.push(`   - ${e}`);
+        }
+    }
+
+    lines.push('');
+    lines.push('¿Los datos son correctos?');
+
+    return lines.join('\n');
+}
+
+/**
+ * Continues the flow after the driver confirmed the extracted data is correct.
+ * This is the logic that was previously the bottom half of handleRemitoMessage:
+ * check the address, save, or ask about unknown addresses.
+ */
+async function continueAfterDataConfirmation(
+    phoneNumberId: string,
+    message: Message,
+    pending: PendingAddressConfirmation,
+): Promise<void> {
+    const parsed = {
+        data: {
+            clientName: pending.clientName,
+            address: pending.address,
+            packages: pending.packages,
+        },
+        errors: pending.errors,
+    };
+
+    // If client is resolved and address is present, check address against DB
+    if (pending.clientId !== undefined && pending.address) {
+        const addressMatch = await findMatchingAddress(
+            prisma,
+            pending.clientId,
+            pending.address,
+        );
+
+        if (addressMatch.matched) {
+            // Known address — save and reply
+            await saveRemito(prisma, {
+                date: pending.date,
+                rawText: pending.rawText,
+                clientName: pending.clientName,
+                address: pending.address,
+                packages: pending.packages,
+                clientId: pending.clientId,
+                addressId: addressMatch.addressId,
+            });
+
+            console.log('[Remitos Controller] Remito saved after driver confirmed data.');
+
+            await GraphApi.sendTextMessage(
+                message.id,
+                phoneNumberId,
+                pending.driverPhoneNumber,
+                formatRemitoReply(parsed),
+            );
+            return;
+        }
+
+        // Unknown address — ask the driver
+        console.log(
+            `[Remitos Controller] Unknown address for clientId ${pending.clientId}: "${pending.address}". ` +
+            `Asking driver for confirmation.`,
+        );
+
+        const outgoingMessage = await GraphApi.messageWithInteractiveReply(
+            message.id,
+            phoneNumberId,
+            pending.driverPhoneNumber,
+            `⚠️ Dirección desconocida para *${pending.clientName}*:\n\n` +
+            `_"${pending.address}"_\n\n` +
+            `¿Agregar dirección?`,
+            [
+                { id: REPLY_ID.ADDRESS_VALID, title: '✅ Sí, guardar' },
+                { id: REPLY_ID.ADDRESS_INVALID, title: '❌ No, es un error' },
+            ],
+        ) as { messages?: Array<{ id: string }> };
+
+        const outgoingMessageId = outgoingMessage?.messages?.[0]?.id;
+        if (outgoingMessageId) {
+            const nextPending: PendingAddressConfirmation = {
+                ...pending,
+                step: 'confirm_address',
+            };
+            await Cache.set(pendingCacheKey(outgoingMessageId), JSON.stringify(nextPending));
+            console.log(
+                `[Remitos Controller] Address confirmation sent; pending state cached under key: ${pendingCacheKey(outgoingMessageId)}`,
+            );
+        } else {
+            console.warn(
+                '[Remitos Controller] Could not retrieve outgoing message ID for address question; saving as error.',
+            );
+            await saveRemitoError(prisma, {
+                date: pending.date,
+                rawText: pending.rawText,
+                clientName: pending.clientName,
+                address: pending.address,
+                packages: pending.packages,
+                errors: [...pending.errors, `Dirección desconocida para este cliente: "${pending.address}"`],
+            });
+        }
+        return;
+    }
+
+    // No address lookup needed — save with whatever we have
+    if (hasErrors(parsed)) {
+        await saveRemitoError(prisma, {
+            date: pending.date,
+            rawText: pending.rawText,
+            clientName: pending.clientName,
+            address: pending.address,
+            packages: pending.packages,
+            errors: pending.errors,
+        });
+    } else {
+        await saveRemito(prisma, {
+            date: pending.date,
+            rawText: pending.rawText,
+            clientName: pending.clientName,
+            address: pending.address,
+            packages: pending.packages,
+            clientId: pending.clientId,
+        });
+    }
+
+    console.log('[Remitos Controller] Remito saved after driver confirmed data.');
+
+    await GraphApi.sendTextMessage(
+        message.id,
+        phoneNumberId,
+        pending.driverPhoneNumber,
+        formatRemitoReply(parsed),
+    );
+}
+
+/**
+ * Fallback: save immediately without driver confirmation (used when we can't
+ * retrieve the outgoing message ID to cache the pending state).
+ * Behaviour is identical to the original pre-confirmation flow.
+ */
+async function saveWithoutConfirmation(
+    date: Date,
+    rawText: string,
+    parsed: { data: { clientName?: string; address?: string; packages?: number }; errors: string[] },
+    resolvedClientId: number | undefined,
+    phoneNumberId: string,
+    message: Message,
+): Promise<void> {
+    if (resolvedClientId !== undefined && parsed.data.address) {
+        const addressMatch = await findMatchingAddress(prisma, resolvedClientId, parsed.data.address);
+
+        if (addressMatch.matched) {
+            await saveRemito(prisma, {
+                date, rawText,
+                clientName: parsed.data.clientName,
+                address: parsed.data.address,
+                packages: parsed.data.packages,
+                clientId: resolvedClientId,
+                addressId: addressMatch.addressId,
+            });
+        } else {
+            await saveRemitoError(prisma, {
+                date, rawText,
+                clientName: parsed.data.clientName,
+                address: parsed.data.address,
+                packages: parsed.data.packages,
+                errors: [...parsed.errors, `Dirección desconocida para este cliente: "${parsed.data.address}"`],
+            });
+        }
+    } else if (hasErrors(parsed)) {
+        await saveRemitoError(prisma, {
+            date, rawText,
+            clientName: parsed.data.clientName,
+            address: parsed.data.address,
+            packages: parsed.data.packages,
+            errors: parsed.errors,
+        });
+    } else {
+        await saveRemito(prisma, {
+            date, rawText,
+            clientName: parsed.data.clientName,
+            address: parsed.data.address,
+            packages: parsed.data.packages,
+            clientId: resolvedClientId,
+        });
+    }
+
+    await GraphApi.sendTextMessage(
+        message.id,
+        phoneNumberId,
+        message.senderPhoneNumber,
+        formatRemitoReply(parsed),
+    );
 }
