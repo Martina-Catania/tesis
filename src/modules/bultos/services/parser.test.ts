@@ -12,8 +12,11 @@ import { parseDeliveryMessage } from './parser';
 const prismaMock = mockDeep<PrismaClient>();
 
 beforeEach(() => {
-    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'log').mockImplementation(() => { });
     mockReset(prismaMock);
+    // Default: no clients in DB. Tests that need specific clients call
+    // mockValidClients(...names) again to override this.
+    mockValidClients();
 });
 
 afterEach(() => {
@@ -21,12 +24,12 @@ afterEach(() => {
 });
 
 // Makes prismaMock behave as if the given names are valid clients in the DB.
+// findClient now calls prisma.client.findMany and resolves names in JS,
+// so we mock findMany to return a list of client rows with empty aliases.
 function mockValidClients(...names: string[]) {
-    prismaMock.client.findUnique.mockImplementation((args: any) => {
-        const name = args?.where?.name;
-        return Promise.resolve(names.includes(name) ? { id: 1, name } : null);
-    });
-    prismaMock.alias.findUnique.mockResolvedValue(null);
+    prismaMock.client.findMany.mockResolvedValue(
+        names.map((name, i) => ({ id: i + 1, name, aliases: [] })),
+    );
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -82,6 +85,7 @@ describe('Client parsing', () => {
     });
 
     it('should add an error message for messages without client names', async () => {
+        mockValidClients(); // no valid clients
         const message = "10x20x30 10\n5x5x5 2";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([
@@ -203,14 +207,11 @@ describe('Date parsing', () => {
 describe('Day name parsing', () => {
     beforeEach(() => mockValidClients('Cliente Valido'));
 
-    // Helper: returns the date of the last occurrence of a given day (0=Sun … 6=Sat),
-    // including today if it matches.
     function lastOccurrenceOfDay(targetDay: number): Date {
         const today = new Date();
         const daysAgo = (today.getDay() - targetDay + 7) % 7;
         const result = new Date(today);
         result.setDate(today.getDate() - daysAgo);
-        // Normalize milliseconds to match parser behavior
         result.setMilliseconds(0);
         return result;
     }
@@ -252,26 +253,31 @@ describe('Day name parsing', () => {
         expect(date).toEqual(today);
     });
 });
+
 describe('Irrelevant message handling', () => {
     it('ignores a plain chat message with no measurements or known structure', async () => {
+        mockValidClients();
         const message = "Hiii";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([]);
     });
 
     it('ignores a greeting with punctuation', async () => {
+        mockValidClients();
         const message = "Hola, cómo estás?";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([]);
     });
 
     it('ignores a message that is only a date', async () => {
+        mockValidClients();
         const message = "05/06";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([]);
     });
 
     it('ignores a message that is only a day name', async () => {
+        mockValidClients();
         const message = "Viernes";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([]);
@@ -285,12 +291,14 @@ describe('Irrelevant message handling', () => {
     });
 
     it('ignores an unrecognised client name with no following measurements', async () => {
+        mockValidClients();
         const message = "Cliente Invalido";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([]);
     });
 
     it('ignores a blank / whitespace-only message', async () => {
+        mockValidClients();
         const message = "   \n  \n  ";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([]);
@@ -310,6 +318,7 @@ describe('Irrelevant message handling', () => {
     });
 
     it('keeps a delivery for an unrecognised client that has valid packages', async () => {
+        mockValidClients();
         const message = "Cliente Invalido\n10x20x30";
         const { deliveries } = await parseDeliveryMessage(prismaMock, message);
         expect(deliveries).toEqual([

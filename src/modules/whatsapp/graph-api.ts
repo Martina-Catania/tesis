@@ -1,4 +1,5 @@
 import * as facebookNodejsBusinessSdk from 'facebook-nodejs-business-sdk';
+import FormData from 'form-data';
 import { config } from '../../shared/utils';
 
 const { FacebookAdsApi } = facebookNodejsBusinessSdk;
@@ -6,19 +7,6 @@ const token = config.accessToken as string;
 const api = new FacebookAdsApi(token);
 
 // ─── Option types for template methods ───────────────────────────────────────
-
-export interface UtilityTemplateOptions {
-  templateName: string;
-  locale: string;
-  imageLink: string;
-}
-
-export interface LimitedTimeOfferTemplateOptions {
-  templateName: string;
-  locale: string;
-  imageLink: string;
-  offerCode: string;
-}
 
 export interface MediaCardCarouselOptions {
   templateName: string;
@@ -41,6 +29,19 @@ function normalizeRecipientPhoneNumber(phoneNumber: string | undefined): string 
   }
 
   return digitsOnly;
+}
+
+/**
+ * Trims the description of an interactive list item to 72 characters, as required by Meta's API.
+ * If the description is longer than 72 characters, it will be truncated and suffixed with "...".
+ * If the description is undefined or shorter than 72 characters, it will be returned as-is.
+ */
+function trimInteractiveListDescription(description: string | undefined): string | undefined {
+  if (!description) {
+    return description;
+  }
+
+  return description.length > 72 ? `${description.slice(0, 69)}...` : description;
 }
 
 // ─── API class ───────────────────────────────────────────────────────────────
@@ -140,6 +141,14 @@ export class GraphApi {
       rows: Array<{ id: string; title: string; description?: string }>;
     }>,
   ): Promise<unknown> {
+    const normalizedSections = sections.map(section => ({
+      ...section,
+      rows: section.rows.map(row => ({
+        ...row,
+        description: trimInteractiveListDescription(row.description),
+      })),
+    }));
+
     const requestBody = {
       messaging_product: 'whatsapp',
       to: recipientPhoneNumber,
@@ -149,114 +158,8 @@ export class GraphApi {
         body: { text: messageText },
         action: {
           button: buttonLabel,
-          sections,
+          sections: normalizedSections,
         },
-      },
-    };
-
-    return this.#makeApiCall(messageId, senderPhoneNumberId, requestBody);
-  }
-
-  static async messageWithUtilityTemplate(
-    messageId: string | undefined,
-    senderPhoneNumberId: string,
-    recipientPhoneNumber: string,
-    options: UtilityTemplateOptions,
-  ): Promise<unknown> {
-    const { templateName, locale, imageLink } = options;
-    const requestBody = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: recipientPhoneNumber,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: locale },
-        components: [
-          {
-            type: 'header',
-            parameters: [{ type: 'image', image: { link: imageLink } }],
-          },
-        ],
-      },
-    };
-
-    return this.#makeApiCall(messageId, senderPhoneNumberId, requestBody);
-  }
-
-  static async messageWithLimitedTimeOfferTemplate(
-    messageId: string | undefined,
-    senderPhoneNumberId: string,
-    recipientPhoneNumber: string,
-    options: LimitedTimeOfferTemplateOptions,
-  ): Promise<unknown> {
-    const { templateName, locale, imageLink, offerCode } = options;
-    const futureTime = new Date(Date.now() + 48 * 60 * 60 * 1000);
-
-    const requestBody = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: recipientPhoneNumber,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: locale },
-        components: [
-          {
-            type: 'header',
-            parameters: [{ type: 'image', image: { link: imageLink } }],
-          },
-          {
-            type: 'limited_time_offer',
-            parameters: [
-              {
-                type: 'limited_time_offer',
-                limited_time_offer: { expiration_time_ms: futureTime.getTime() },
-              },
-            ],
-          },
-          {
-            type: 'button',
-            sub_type: 'copy_code',
-            index: 0,
-            parameters: [{ type: 'coupon_code', coupon_code: offerCode }],
-          },
-        ],
-      },
-    };
-
-    return this.#makeApiCall(messageId, senderPhoneNumberId, requestBody);
-  }
-
-  static async messageWithMediaCardCarousel(
-    messageId: string | undefined,
-    senderPhoneNumberId: string,
-    recipientPhoneNumber: string,
-    options: MediaCardCarouselOptions,
-  ): Promise<unknown> {
-    const { templateName, locale, imageLinks } = options;
-    const requestBody = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: recipientPhoneNumber,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: locale },
-        components: [
-          {
-            type: 'carousel',
-            cards: imageLinks.map((imageLink, idx) => ({
-              card_index: idx,
-              components: [
-                {
-                  type: 'header',
-                  parameters: [{ type: 'image', image: { link: imageLink } }],
-                },
-              ],
-            })),
-          },
-        ],
       },
     };
 

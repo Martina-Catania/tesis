@@ -42,33 +42,50 @@ const deliveryDate = new Date('2026-05-20');
 
 describe('findClient', () => {
     it('returns the client when found by name', async () => {
-        prismaMock.client.findUnique.mockResolvedValue(mockClient);
+        prismaMock.client.findMany.mockResolvedValue([
+            { ...mockClient, aliases: [] },
+        ] as any);
 
         const result = await findClient(prismaMock, 'Supermercado Norte');
 
         expect(result).toEqual(mockClient);
-        expect(prismaMock.client.findUnique).toHaveBeenCalledWith({
-            where: { name: 'Supermercado Norte' },
-            select: { id: true, name: true },
+        expect(prismaMock.client.findMany).toHaveBeenCalledWith({
+            select: {
+                id: true,
+                name: true,
+                aliases: { select: { alias: true } },
+            },
         });
+    });
+
+    it('matches client names case-insensitively', async () => {
+        prismaMock.client.findMany.mockResolvedValue([
+            { ...mockClient, aliases: [] },
+        ] as any);
+
+        const result = await findClient(prismaMock, 'supermercado norte');
+
+        expect(result).toEqual(mockClient);
     });
 
     it('falls back to alias lookup when name is not found', async () => {
-        prismaMock.client.findUnique.mockResolvedValue(null);
-        prismaMock.alias.findUnique.mockResolvedValue({ client: mockClient } as any);
+        prismaMock.client.findMany.mockResolvedValue([
+            {
+                id: 2,
+                name: 'Other Client',
+                aliases: [{ alias: 'Supermercado N.' }],
+            },
+        ] as any);
 
         const result = await findClient(prismaMock, 'Supermercado N.');
 
-        expect(result).toEqual(mockClient);
-        expect(prismaMock.alias.findUnique).toHaveBeenCalledWith({
-            where: { alias: 'Supermercado N.' },
-            select: { client: { select: { id: true, name: true } } },
-        });
+        expect(result).toEqual({ id: 2, name: 'Other Client' });
     });
 
     it('returns null when neither name nor alias is found', async () => {
-        prismaMock.client.findUnique.mockResolvedValue(null);
-        prismaMock.alias.findUnique.mockResolvedValue(null);
+        prismaMock.client.findMany.mockResolvedValue([
+            { id: 1, name: 'Another Client', aliases: [] },
+        ] as any);
 
         const result = await findClient(prismaMock, 'Desconocido');
 
@@ -112,7 +129,7 @@ describe('saveDelivery', () => {
     };
 
     it('creates a delivery with computed volumes for each package', async () => {
-        prismaMock.delivery.create.mockResolvedValue(mockSavedDelivery);
+        prismaMock.measurementData.create.mockResolvedValue(mockSavedDelivery as any);
 
         const result = await saveDelivery(prismaMock, {
             clientId: mockClient.id,
@@ -122,7 +139,7 @@ describe('saveDelivery', () => {
         });
 
         expect(result).toEqual(mockSavedDelivery);
-        expect(prismaMock.delivery.create).toHaveBeenCalledWith({
+        expect(prismaMock.measurementData.create).toHaveBeenCalledWith({
             data: {
                 clientId: mockClient.id,
                 date:     deliveryDate,
@@ -139,7 +156,7 @@ describe('saveDelivery', () => {
     });
 
     it('sets periodId to null when not provided', async () => {
-        prismaMock.delivery.create.mockResolvedValue({ ...mockSavedDelivery, periodId: null });
+        prismaMock.measurementData.create.mockResolvedValue({ ...mockSavedDelivery, periodId: null } as any);
 
         await saveDelivery(prismaMock, {
             clientId: mockClient.id,
@@ -147,7 +164,7 @@ describe('saveDelivery', () => {
             packages: mockPackages,
         });
 
-        expect(prismaMock.delivery.create).toHaveBeenCalledWith(
+        expect(prismaMock.measurementData.create).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: expect.objectContaining({ periodId: null }),
             })

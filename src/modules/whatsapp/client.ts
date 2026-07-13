@@ -2,8 +2,10 @@ import { GraphApi } from './graph-api';
 import { Message, RawMessage } from './message';
 import { Status, RawStatus } from './status';
 import { Cache } from '../../shared/utils';
-import { handleMeasurementMessage } from '../bultos/controllers';
+import { handleMeasurementMessage, handleBultosInteractiveReply } from '../bultos/controllers';
 import { handleRemitoMessage, handleRemitoInteractiveReply } from '../remitos/controllers';
+import { handleMatchTrigger } from '../match/controllers';
+import { handleAdminCommand, handleAdminInteractiveReply } from '../admin/controllers';
 
 export class Conversation {
 	static async handleMessage(
@@ -14,6 +16,12 @@ export class Conversation {
 
 		switch (message.type) {
 			case 'text': {
+				const handledByAdmin = await handleAdminCommand(senderPhoneNumberId, message);
+				if (handledByAdmin) break;
+
+				const handledByMatch = await handleMatchTrigger(senderPhoneNumberId, message);
+				if (handledByMatch) break;
+
 				await handleMeasurementMessage(senderPhoneNumberId, message);
 				break;
 			}
@@ -24,10 +32,17 @@ export class Conversation {
 			}
 
 			case 'interactive': {
-				// Try to match the reply against a pending remito address-confirmation flow.
-				// If it doesn't belong to us, fall through to the default handler.
-				const handled = await handleRemitoInteractiveReply(senderPhoneNumberId, message);
-				if (!handled) {
+				// Each handler checks its own cache namespace and returns false if
+				// the reply doesn't belong to it — order doesn't matter functionally
+				// but admin > bultos > remito is a reasonable priority.
+				const handledByAdmin = await handleAdminInteractiveReply(senderPhoneNumberId, message);
+				if (handledByAdmin) break;
+
+				const handledByBultos = await handleBultosInteractiveReply(senderPhoneNumberId, message);
+				if (handledByBultos) break;
+
+				const handledByRemito = await handleRemitoInteractiveReply(senderPhoneNumberId, message);
+				if (!handledByRemito) {
 					await GraphApi.sendTextMessage(
 						message.id,
 						senderPhoneNumberId,

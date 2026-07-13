@@ -34,7 +34,7 @@ export async function saveDelivery(prisma: PrismaClient, input: DeliveryInput) {
     console.log(`[Bultos Storage] Saving delivery for clientId: ${input.clientId}, date: ${input.date.toISOString()}, packages: ${input.packages.length}`);
 
     try {
-        const delivery = await prisma.delivery.create({
+        const delivery = await prisma.measurementData.create({
             data: {
                 clientId: input.clientId,
                 date: input.date,
