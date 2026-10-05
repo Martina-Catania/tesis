@@ -25,3 +25,7 @@ dev.db
 
 ## Testing
 /coverage
+
+## Images
+/src/modules/remitos/few_shot_examples
+/src/modules/remitos/test_remitos
