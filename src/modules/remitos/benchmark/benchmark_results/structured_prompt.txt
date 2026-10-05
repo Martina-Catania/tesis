@@ -1,0 +1,7 @@
+Prompt: structured_prompt
+Failed Images: 1/10
+Cliente: 0/10 (0%)
+Dir: 1/10 (10%)
+Bultos: 0/10 (0%)
+
+Failed files: remito-7.jpeg
