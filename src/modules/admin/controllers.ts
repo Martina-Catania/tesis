@@ -1,5 +1,5 @@
 import { prisma } from '../../shared/db/prisma';
-import { Cache } from '../../shared/utils';
+import { Cache, isAdminPhoneNumber } from '../../shared/utils';
 import { GraphApi } from '../whatsapp/graph-api';
 import { Message } from '../whatsapp/message';
 import {
@@ -46,6 +46,13 @@ export async function handleAdminCommand(
 
     if (!isAdminCommand(text)) {
         return false;
+    }
+
+    if (!isAdminPhoneNumber(message.senderPhoneNumber)) {
+        console.warn(
+            `[Admin Controller] Rejected admin command from unauthorized number: ${message.senderPhoneNumber}`,
+        );
+        return true;
     }
 
     console.log(
@@ -112,6 +119,10 @@ export async function handleAdminInteractiveReply(
     phoneNumberId: string,
     message: Message,
 ): Promise<boolean> {
+    if (!isAdminPhoneNumber(message.senderPhoneNumber)) {
+        return false;
+    }
+
     const contextMessageId = message.contextMessageId;
     if (!contextMessageId) return false;
 
