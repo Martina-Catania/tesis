@@ -1,0 +1,7 @@
+Prompt: few_shot_prompt
+Failed Images: 5/10
+Cliente: 0/10 (0%)
+Dir: 5/10 (50%)
+Bultos: 1/10 (10%)
+
+Failed files: remito-3.jpeg, remito-5.jpeg, remito-7.jpeg, remito-8.jpeg, remito-10.jpeg

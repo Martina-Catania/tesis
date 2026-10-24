@@ -37,6 +37,22 @@ Approach validated with PO (admin).
 	- `utils/config.ts` and `utils/index.ts`: configuration loading and misc helpers.
 	- `utils/redis.ts`: Redis connection wrapper used for caching or pub/sub.
 
+- **Tarifas (rates) domain**: Handles pricing and tariff-related data under [src/modules/tarifas](src/modules/tarifas).
+   - `controllers.ts`: controller layer for tarifas endpoints.
+   - `services/formatter.ts`: Formats tarifa data for display and messaging.
+   - `services/parser.ts`: Parses incoming tarifa inputs.
+   - `services/storage.ts`: Persists tarifa records and lookups.
+
+- **Match domain**: Matching logic for deliveries and routing under [src/modules/match](src/modules/match).
+   - `controllers.ts` / `types.ts`: API and types for match operations.
+   - `services/matcher.ts`: Core matching algorithm and heuristics.
+   - `services/job.ts`: Background job orchestration for match runs.
+   - `services/formatter.ts` / `services/storage.ts`: Helpers for formatting and persistence; includes unit tests.
+
+- **Admin domain**: Admin utilities and tooling under [src/modules/admin](src/modules/admin).
+   - `controllers.ts` / `types.ts`: Admin-facing controllers and types.
+   - `services/parser.ts` / `services/formatter.ts`: Parsing and formatting helpers used by admin features; includes unit tests.
+
 --------------------
 To run:
 --------------------

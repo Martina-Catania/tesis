@@ -7,12 +7,14 @@ const ENV_VARS = [
   "REDIS_HOST",
   "REDIS_PORT",
   "GEMINI_API_KEY",
+  "ADMIN_NUMBER",
 ] as const;
 
 interface Config {
   appSecret: string | undefined;
   accessToken: string | undefined;
   verifyToken: string | undefined;
+  adminNumber: string | undefined;
   port: number;
   redisHost: string;
   redisPort: number;
@@ -20,10 +22,15 @@ interface Config {
   checkEnvVariables: () => void;
 }
 
+function normalizePhoneNumber(phoneNumber: string): string {
+  return phoneNumber.replace(/\D/g, '');
+}
+
 export const config: Config = Object.freeze({
   appSecret:   process.env.APP_SECRET,
   accessToken: process.env.ACCESS_TOKEN,
   verifyToken: process.env.VERIFY_TOKEN,
+  adminNumber: process.env.ADMIN_NUMBER,
 
   port:      Number(process.env.PORT) || 8080,
   redisHost: process.env.REDIS_HOST   || "localhost",
@@ -39,3 +46,11 @@ export const config: Config = Object.freeze({
     }
   },
 });
+
+export function isAdminPhoneNumber(phoneNumber: string): boolean {
+  if (!config.adminNumber) return false;
+
+  const normalizedAdminNumber = normalizePhoneNumber(config.adminNumber);
+  return normalizedAdminNumber.length > 0 &&
+    normalizePhoneNumber(phoneNumber) === normalizedAdminNumber;
+}

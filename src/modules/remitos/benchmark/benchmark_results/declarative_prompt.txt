@@ -1,0 +1,7 @@
+Prompt: declarative_prompt
+Failed Images: 3/10
+Cliente: 0/10 (0%)
+Dir: 3/10 (30%)
+Bultos: 0/10 (0%)
+
+Failed files: remito-3.jpeg, remito-8.jpeg, remito-10.jpeg

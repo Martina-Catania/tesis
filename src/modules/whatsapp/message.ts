@@ -5,6 +5,7 @@ export interface RawMessage {
   type: string;
   text?: { body: string };
   image?: { id: string; caption?: string };
+  document?: { id: string; filename?: string; mime_type?: string };
   interactive?: {
     type: 'button_reply' | 'list_reply';
     button_reply?: { id: string; title: string };
@@ -13,7 +14,7 @@ export interface RawMessage {
   context?: { id: string };
 }
 
-export type MessageType = 'text' | 'image' | 'interactive' | 'unknown' | string;
+export type MessageType = 'text' | 'image' | 'document' | 'interactive' | 'unknown' | string;
 
 export class Message {
   id: string;
@@ -22,6 +23,9 @@ export class Message {
   text?: string;
   imageId?: string | null;
   caption?: string | null;
+  documentId?: string | null;
+  documentFilename?: string | null;
+  documentMimeType?: string | null;
   contextMessageId?: string;
   interactiveReplyId?: string;
 
@@ -38,6 +42,11 @@ export class Message {
       this.type = 'image';
       this.imageId = rawMessage.image?.id ?? null;
       this.caption = rawMessage.image?.caption ?? null;
+    } else if (type === 'document') {
+      this.type = 'document';
+      this.documentId       = rawMessage.document?.id ?? null;
+      this.documentFilename = rawMessage.document?.filename ?? null;
+      this.documentMimeType = rawMessage.document?.mime_type ?? null;
     } else if (type === 'interactive') {
       this.type = 'interactive';
       this.contextMessageId = rawMessage.context?.id;
