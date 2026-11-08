@@ -1,5 +1,5 @@
 import { prisma } from '../../shared/db/prisma';
-import { Cache } from '../../shared/utils';
+import { Cache, isAdminPhoneNumber } from '../../shared/utils';
 import { GraphApi } from '../whatsapp/graph-api';
 import { Message } from '../whatsapp/message';
 import { parseTariffCsv, TariffUpload } from './services/parser';
@@ -56,6 +56,13 @@ export async function handleTariffDocument(
         filename.endsWith('.csv');
 
     if (!isCsv) return false;
+
+    if (!isAdminPhoneNumber(message.senderPhoneNumber)) {
+        console.warn(
+            `[Tariff Controller] Rejected tariff CSV from unauthorized number: ${message.senderPhoneNumber}`,
+        );
+        return true;
+    }
 
     console.log(
         `[Tariff Controller] CSV document received from ${message.senderPhoneNumber} ` +
@@ -137,6 +144,10 @@ export async function handleTariffInteractiveReply(
     phoneNumberId: string,
     message: Message,
 ): Promise<boolean> {
+    if (!isAdminPhoneNumber(message.senderPhoneNumber)) {
+        return false;
+    }
+
     const contextMessageId = message.contextMessageId;
     if (!contextMessageId) return false;
 
