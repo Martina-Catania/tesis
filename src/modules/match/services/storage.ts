@@ -423,6 +423,3 @@ function parseJsonErrors(raw: unknown): string[] {
         return [];
     }
 }
-
-// Fix typo in local type alias used inside groupIntoCandidates
-type RomitoRow = RemitoRow;
